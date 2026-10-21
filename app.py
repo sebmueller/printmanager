@@ -1,4 +1,4 @@
-import io
+﻿import io
 import json
 import os
 import re
@@ -20,6 +20,40 @@ STATUSES = ["geplant", "queue", "gedruckt", "montiert"]
 STATUS_IDX = {s: i for i, s in enumerate(STATUSES)}
 PRINTED_IDX = STATUS_IDX["gedruckt"]
 
+ERRORS = {
+    "name_required": ("Name fehlt", "Name is required"),
+    "invalid_status": ("Ungültiger Status", "Invalid status"),
+    "copies_min": ("Kopien müssen >= 1 sein", "Copies must be >= 1"),
+    "copies_below_printed": ("Die Kopienanzahl kann nicht kleiner als die bereits gedruckte Anzahl sein.",
+                             "Total copies cannot be less than the number already printed."),
+    "print_count_invalid": ("Bitte eine gültige Anzahl größer als 0 eingeben.",
+                             "Enter a valid quantity greater than 0."),
+    "print_count_excess": ("Es sind nur noch {remaining} Kopien offen.",
+                            "Only {remaining} copies are still outstanding."),
+    "not_in_queue": ("Dieses Teil ist nicht in der Warteschlange.",
+                     "This part is not in the queue."),
+    "project_missing": ("Projekt existiert nicht", "Project does not exist"),
+    "project_exists": ("Ein Projekt mit dem Namen \"{name}\" existiert bereits.",
+                       "A project named \"{name}\" already exists."),
+    "no_file": ("Keine Datei übergeben", "No file provided"),
+    "path_missing": ("Pfad existiert nicht: {path}", "Path does not exist: {path}"),
+    "bad_zip": ("Ungültige ZIP-Datei (manifest.json fehlt oder ist beschädigt)",
+                "Invalid ZIP file (manifest.json missing or corrupt)"),
+    "unknown_format": ("Unbekanntes Export-Format", "Unknown export format"),
+    "newer_version": ("Export stammt von einer neueren Tool-Version",
+                      "Export was created by a newer tool version"),
+    "invalid_mode": ("Ungültiger Modus", "Invalid mode"),
+    "no_zip": ("Keine ZIP-Datei übergeben", "No ZIP file provided"),
+    "spool_booked": ("Spule ist mit gebuchten Teilen verknüpft",
+                     "Spool is linked to printed parts"),
+}
+
+
+def terr(key, **kw):
+    de, en = ERRORS[key]
+    lang = request.accept_languages.best_match(["de", "en"]) or "de"
+    return (en if lang == "en" else de).format(**kw)
+
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 app.config["MAX_CONTENT_LENGTH"] = 512 * 1024 * 1024  # 512 MB
 app.config["SEND_FILE_MAX_AGE_DEFAULT"] = 0  # kein Caching, damit Änderungen sofort ankommen
@@ -34,10 +68,11 @@ def no_cache(response):
 
 @app.errorhandler(Exception)
 def log_error(e):
+    from werkzeug.exceptions import HTTPException
+    code = getattr(e, "code", None) or 500
+    if isinstance(e, HTTPException):
+        return jsonify({"error": e.description}), code
     app.logger.exception("Fehler bei %s %s", request.method, request.path)
-    code = getattr(e, "code", 500)
-    if code is None:
-        code = 500
     return jsonify({"error": str(e)}), code
 
 
@@ -48,6 +83,8 @@ CREATE TABLE IF NOT EXISTS projects (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    url TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS spools (
@@ -66,6 +103,7 @@ CREATE TABLE IF NOT EXISTS parts (
     project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     copies INTEGER NOT NULL DEFAULT 1,
+    copies_printed INTEGER NOT NULL DEFAULT 0,
     status TEXT NOT NULL DEFAULT 'geplant',
     time_min REAL NOT NULL DEFAULT 0,
     filament_g REAL NOT NULL DEFAULT 0,
@@ -103,9 +141,17 @@ def close_db(exc):
 def init_db():
     with sqlite3.connect(DB_PATH) as db:
         db.executescript(SCHEMA)
-        cols = [r[1] for r in db.execute("PRAGMA table_info(spools)").fetchall()]
-        if "count" not in cols:
+        spool_cols = [r[1] for r in db.execute("PRAGMA table_info(spools)").fetchall()]
+        if "count" not in spool_cols:
             db.execute("ALTER TABLE spools ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
+        part_cols = [r[1] for r in db.execute("PRAGMA table_info(parts)").fetchall()]
+        if "copies_printed" not in part_cols:
+            db.execute("ALTER TABLE parts ADD COLUMN copies_printed INTEGER NOT NULL DEFAULT 0")
+            db.execute("UPDATE parts SET copies_printed = copies WHERE status IN ('gedruckt', 'montiert')")
+        project_cols = [r[1] for r in db.execute("PRAGMA table_info(projects)").fetchall()]
+        for col in ("notes", "url"):
+            if col not in project_cols:
+                db.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
 
 
 def now():
@@ -118,11 +164,8 @@ def row_to_dict(row):
 
 # ---------------------------------------------------------------- helpers
 
-RANK_SQL = ("CASE {p}.status WHEN 'montiert' THEN 3 WHEN 'gedruckt' THEN 2 "
-            "WHEN 'queue' THEN 1 ELSE 0 END")
-
 def book_amount(filament_g, copies):
-    return (filament_g or 0.0) * (copies or 1)
+    return (filament_g or 0.0) * (copies or 0)
 
 
 def consume_spool(cursor, sid, grams):
@@ -190,17 +233,16 @@ def index():
 
 @app.get("/api/projects")
 def list_projects():
-    rank = RANK_SQL.format(p="pt")
     rows = get_db().execute(
-        f"""
+        """
         SELECT p.*,
                COUNT(pt.id) AS parts_count,
                COALESCE(SUM(pt.copies), 0) AS copies_total,
-               COALESCE(SUM(CASE WHEN {rank} >= 2 THEN pt.copies ELSE 0 END), 0) AS copies_done,
-               COALESCE(SUM(CASE WHEN {rank} <= 1 THEN pt.time_min * pt.copies ELSE 0 END), 0) AS time_open,
+               COALESCE(SUM(pt.copies_printed), 0) AS copies_done,
+               COALESCE(SUM((pt.copies - pt.copies_printed) * pt.time_min), 0) AS time_open,
                COALESCE(SUM(pt.time_min * pt.copies), 0) AS time_total,
                COALESCE(SUM(pt.filament_g * pt.copies), 0) AS filament_total,
-               COALESCE(SUM(CASE WHEN {rank} <= 1 THEN pt.filament_g * pt.copies ELSE 0 END), 0) AS filament_open
+               COALESCE(SUM((pt.copies - pt.copies_printed) * pt.filament_g), 0) AS filament_open
         FROM projects p LEFT JOIN parts pt ON pt.project_id = p.id
         GROUP BY p.id ORDER BY p.created_at DESC
         """
@@ -213,13 +255,16 @@ def create_project():
     data = request.get_json(force=True)
     name = (data.get("name") or "").strip()
     if not name:
-        abort(400, "Name fehlt")
-    cur = get_db().execute(
-        "INSERT INTO projects (name, description, created_at) VALUES (?, ?, ?)",
-        (name, data.get("description", ""), now()),
+        abort(400, terr("name_required"))
+    db = get_db()
+    if db.execute("SELECT 1 FROM projects WHERE name = ? COLLATE NOCASE", (name,)).fetchone():
+        abort(409, terr("project_exists", name=name))
+    cur = db.execute(
+        "INSERT INTO projects (name, description, notes, url, created_at) VALUES (?, ?, ?, ?, ?)",
+        (name, data.get("description", ""), data.get("notes", ""), data.get("url", ""), now()),
     )
-    get_db().commit()
-    return jsonify(row_to_dict(get_db().execute(
+    db.commit()
+    return jsonify(row_to_dict(db.execute(
         "SELECT * FROM projects WHERE id = ?", (cur.lastrowid,)).fetchone())), 201
 
 
@@ -230,9 +275,16 @@ def update_project(pid):
     row = db.execute("SELECT * FROM projects WHERE id = ?", (pid,)).fetchone()
     if not row:
         abort(404)
+    name = (data.get("name") or row["name"]).strip()
+    if not name:
+        abort(400, terr("name_required"))
+    if name.lower() != row["name"].lower() and db.execute(
+            "SELECT 1 FROM projects WHERE name = ? COLLATE NOCASE AND id != ?", (name, pid)).fetchone():
+        abort(409, terr("project_exists", name=name))
     db.execute(
-        "UPDATE projects SET name = ?, description = ? WHERE id = ?",
-        ((data.get("name") or row["name"]).strip(), data.get("description", row["description"]), pid),
+        "UPDATE projects SET name = ?, description = ?, notes = ?, url = ? WHERE id = ?",
+        (name, data.get("description", row["description"]),
+         data.get("notes", row["notes"]), data.get("url", row["url"]), pid),
     )
     db.commit()
     return jsonify(row_to_dict(db.execute("SELECT * FROM projects WHERE id = ?", (pid,)).fetchone()))
@@ -293,9 +345,9 @@ def list_parts():
 
 def validate_part(data, current=None):
     if "status" in data and data["status"] not in STATUSES:
-        abort(400, "Ungültiger Status")
+        abort(400, terr("invalid_status"))
     if "copies" in data and int(data["copies"] or 1) < 1:
-        abort(400, "Kopien müssen >= 1 sein")
+        abort(400, terr("copies_min"))
 
 
 @app.post("/api/parts")
@@ -305,7 +357,7 @@ def create_part():
     project_id = int(data.get("project_id") or 0)
     db = get_db()
     if not db.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone():
-        abort(400, "Projekt existiert nicht")
+        abort(400, terr("project_missing"))
     name = safe_filename(data.get("name") or "Teil")
     copies = max(1, int(data.get("copies") or 1))
     status = data.get("status") or "geplant"
@@ -317,12 +369,13 @@ def create_part():
     if status == "queue":
         m = db.execute("SELECT COALESCE(MAX(queue_pos), 0) m FROM parts").fetchone()
         queue_pos = m["m"] + 1
+    copies_printed = copies if STATUS_IDX[status] >= PRINTED_IDX else 0
     cur = db.execute(
-        """INSERT INTO parts (project_id, name, copies, status, time_min, filament_g,
+        """INSERT INTO parts (project_id, name, copies, copies_printed, status, time_min, filament_g,
            file_path, web_url, file_name, file_stored, file_size, priority, queue_pos,
            spool_id, notes, created_at)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (project_id, name, copies, status, float(data.get("time_min") or 0),
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (project_id, name, copies, copies_printed, status, float(data.get("time_min") or 0),
          float(data.get("filament_g") or 0), data.get("file_path") or "",
          data.get("web_url") or "", file_name, file_stored, file_size,
          int(data.get("priority") or 0), queue_pos,
@@ -330,8 +383,8 @@ def create_part():
          data.get("notes") or "", now()),
     )
     part = db.execute("SELECT * FROM parts WHERE id = ?", (cur.lastrowid,)).fetchone()
-    amount = book_amount(part["filament_g"], part["copies"])
-    if STATUS_IDX[status] >= PRINTED_IDX and part["spool_id"] and amount > 0:
+    amount = book_amount(part["filament_g"], part["copies_printed"])
+    if part["spool_id"] and amount > 0:
         apply_booking(db, part["spool_id"], amount)
         db.execute("UPDATE parts SET spool_booked_g = ? WHERE id = ?", (amount, cur.lastrowid))
     db.commit()
@@ -369,6 +422,14 @@ def update_part(pid):
     merged["name"] = (merged["name"] or "").strip() or part["name"]
     new_status = merged["status"]
 
+    printed = part["copies_printed"]
+    if STATUS_IDX[new_status] >= PRINTED_IDX:
+        printed = merged["copies"]
+    elif STATUS_IDX[part["status"]] >= PRINTED_IDX:
+        printed = 0
+    if printed > merged["copies"]:
+        abort(400, terr("copies_below_printed"))
+
     queue_pos = part["queue_pos"]
     if new_status == "queue" and part["status"] != "queue":
         m = db.execute("SELECT COALESCE(MAX(queue_pos), 0) m FROM parts").fetchone()
@@ -377,35 +438,66 @@ def update_part(pid):
         queue_pos = None
 
     done_at = part["done_at"]
-    if new_status == "gedruckt" and not done_at:
+    if printed >= merged["copies"] and not done_at:
         done_at = now()
-    elif STATUS_IDX[new_status] < PRINTED_IDX:
+    elif printed < merged["copies"]:
         done_at = None
 
+    old_booked = part["spool_booked_g"] or 0.0
+    if old_booked:
+        apply_booking(db, part["spool_id"], -old_booked)
+    new_booked = book_amount(merged["filament_g"], printed) if merged["spool_id"] else 0.0
+    if new_booked:
+        apply_booking(db, merged["spool_id"], new_booked)
+
     db.execute(
-        """UPDATE parts SET name=?, copies=?, status=?, time_min=?, filament_g=?,
-           file_path=?, web_url=?, priority=?, spool_id=?, notes=?, queue_pos=?, done_at=?
+        """UPDATE parts SET name=?, copies=?, copies_printed=?, status=?, time_min=?, filament_g=?,
+           file_path=?, web_url=?, priority=?, spool_id=?, notes=?, queue_pos=?, done_at=?, spool_booked_g=?
            WHERE id=?""",
-        (merged["name"], merged["copies"], new_status, merged["time_min"],
+        (merged["name"], merged["copies"], printed, new_status, merged["time_min"],
          merged["filament_g"], merged["file_path"] or "", merged["web_url"] or "",
          merged["priority"], merged["spool_id"], merged["notes"] or "",
-         queue_pos, done_at, pid),
+         queue_pos, done_at, round(new_booked, 3), pid),
     )
-    old_idx = STATUS_IDX[part["status"]]
-    new_idx = STATUS_IDX[new_status]
-    old_booked = part["spool_booked_g"] or 0.0
-    new_booked = old_booked
+    db.commit()
+    return jsonify(row_to_dict(db.execute("SELECT * FROM parts WHERE id = ?", (pid,)).fetchone()))
 
-    if old_idx >= PRINTED_IDX and old_booked:
-        # Alte Buchung immer auflösen (Spule könnte gewechselt haben)
+
+@app.post("/api/parts/<int:pid>/print")
+def record_printed_copies(pid):
+    db = get_db()
+    part = db.execute("SELECT * FROM parts WHERE id = ?", (pid,)).fetchone()
+    if not part:
+        abort(404)
+    data = request.get_json(force=True)
+    try:
+        amount = int(data.get("copies") or 0)
+    except (TypeError, ValueError):
+        amount = 0
+    if amount < 1:
+        abort(400, terr("print_count_invalid"))
+    remaining = part["copies"] - part["copies_printed"]
+    if part["status"] != "queue":
+        abort(400, terr("not_in_queue"))
+    if amount > remaining:
+        abort(400, terr("print_count_excess", remaining=remaining))
+
+    printed = part["copies_printed"] + amount
+    complete = printed >= part["copies"]
+    new_status = "gedruckt" if complete else "queue"
+    new_queue_pos = None if complete else part["queue_pos"]
+    done_at = now() if complete else None
+    old_booked = part["spool_booked_g"] or 0.0
+    if old_booked:
         apply_booking(db, part["spool_id"], -old_booked)
-        new_booked = 0.0
-    if new_idx >= PRINTED_IDX and merged["spool_id"]:
-        amount = book_amount(merged["filament_g"], merged["copies"])
-        if amount > 0:
-            apply_booking(db, merged["spool_id"], amount)
-            new_booked = amount
-    db.execute("UPDATE parts SET spool_booked_g = ? WHERE id = ?", (round(new_booked, 3), pid))
+    new_booked = book_amount(part["filament_g"], printed) if part["spool_id"] else 0.0
+    if new_booked:
+        apply_booking(db, part["spool_id"], new_booked)
+    db.execute(
+        """UPDATE parts SET copies_printed=?, status=?, queue_pos=?, done_at=?, spool_booked_g=?
+           WHERE id=?""",
+        (printed, new_status, new_queue_pos, done_at, round(new_booked, 3), pid),
+    )
     db.commit()
     return jsonify(row_to_dict(db.execute("SELECT * FROM parts WHERE id = ?", (pid,)).fetchone()))
 
@@ -435,7 +527,7 @@ def replace_part_file(pid):
         abort(404)
     f = request.files.get("file")
     if not f or not f.filename:
-        abort(400, "Keine Datei übergeben")
+        abort(400, terr("no_file"))
     if part["file_stored"]:
         old = FILES_DIR / part["file_stored"]
         if old.exists():
@@ -464,7 +556,7 @@ def open_explorer(pid):
         abort(404)
     p = Path(part["file_path"])
     if not p.exists():
-        abort(404, "Pfad existiert nicht: " + part["file_path"])
+        abort(404, terr("path_missing", path=part["file_path"]))
     subprocess.Popen(["explorer", "/select,", str(p)])
     return jsonify({"ok": True})
 
@@ -552,7 +644,7 @@ def delete_spool(sid):
     booked = db.execute("SELECT COALESCE(SUM(spool_booked_g),0) s FROM parts WHERE spool_id = ? AND spool_booked_g > 0",
                         (sid,)).fetchone()["s"]
     if booked:
-        abort(400, "Spule ist mit gebuchten Teilen verknüpft")
+        abort(400, terr("spool_booked"))
     db.execute("UPDATE parts SET spool_id = NULL WHERE spool_id = ?", (sid,))
     db.execute("DELETE FROM spools WHERE id = ?", (sid,))
     db.commit()
@@ -562,9 +654,9 @@ def delete_spool(sid):
 # ---------------------------------------------------------------- export / import
 
 EXPORT_FORMAT = "printmanager-export"
-EXPORT_VERSION = 1
+EXPORT_VERSION = 2
 
-PART_EXPORT_FIELDS = ["name", "copies", "status", "time_min", "filament_g", "file_path",
+PART_EXPORT_FIELDS = ["name", "copies", "copies_printed", "status", "time_min", "filament_g", "file_path",
                       "web_url", "file_name", "file_stored", "file_size", "priority",
                       "queue_pos", "notes", "created_at", "done_at"]
 SPOOL_EXPORT_FIELDS = ["material", "color", "color_hex", "label", "total_g",
@@ -596,6 +688,7 @@ def _build_export(db, kind, project_ids):
     for pr in projects:
         parts = db.execute("SELECT * FROM parts WHERE project_id = ? ORDER BY id", (pr["id"],)).fetchall()
         pj = {"name": pr["name"], "description": pr["description"],
+              "notes": pr["notes"], "url": pr["url"],
               "created_at": pr["created_at"], "parts": []}
         for pt in parts:
             d = row_to_dict(pt)
@@ -640,21 +733,20 @@ def export_full():
 def import_zip():
     f = request.files.get("file")
     if not f or not f.filename:
-        abort(400, "Keine ZIP-Datei übergeben")
+        abort(400, terr("no_zip"))
     mode = request.form.get("mode", "merge")
     if mode not in ("merge", "restore"):
-        abort(400, "Ungültiger Modus")
+        abort(400, terr("invalid_mode"))
     try:
         z = zipfile.ZipFile(io.BytesIO(f.read()))
         manifest = json.loads(z.read("manifest.json"))
     except Exception:
-        abort(400, "Ungültige ZIP-Datei (manifest.json fehlt oder ist beschädigt)")
+        abort(400, terr("bad_zip"))
     if manifest.get("format") != EXPORT_FORMAT:
-        abort(400, "Unbekanntes Export-Format")
+        abort(400, terr("unknown_format"))
     version = manifest.get("version", 0)
     if version > EXPORT_VERSION:
-        abort(400, "Export stammt von einer neueren Tool-Version")
-    # Format-Migrationen für ältere Versionen kämen hier (aktuell nur v1)
+        abort(400, terr("newer_version"))
 
     db = get_db()
     if mode == "restore":
@@ -683,8 +775,9 @@ def import_zip():
         if mode == "merge" and db.execute(
                 "SELECT 1 FROM projects WHERE name = ?", (name,)).fetchone():
             name += " (Import)"
-        cur = db.execute("INSERT INTO projects (name, description, created_at) VALUES (?,?,?)",
-                         (name, pr.get("description") or "", pr.get("created_at") or now()))
+        cur = db.execute("INSERT INTO projects (name, description, notes, url, created_at) VALUES (?,?,?,?,?)",
+                         (name, pr.get("description") or "", pr.get("notes") or "",
+                          pr.get("url") or "", pr.get("created_at") or now()))
         proj_id = cur.lastrowid
         for pt in pr.get("parts", []):
             status = pt.get("status") if pt.get("status") in STATUSES else "geplant"
@@ -703,14 +796,16 @@ def import_zip():
                     dest.write_bytes(src)
             spool_id = spool_map.get(pt.get("spool_ref"))
             idx = STATUS_IDX[status]
-            booked = (float(pt.get("filament_g") or 0) * int(pt.get("copies") or 1)
-                      if idx >= PRINTED_IDX and spool_id else 0.0)
+            copies = max(1, int(pt.get("copies") or 1))
+            default_printed = copies if idx >= PRINTED_IDX else 0
+            copies_printed = min(copies, max(0, int(pt.get("copies_printed", default_printed) or 0)))
+            booked = (float(pt.get("filament_g") or 0) * copies_printed if spool_id else 0.0)
             db.execute(
-                """INSERT INTO parts (project_id, name, copies, status, time_min, filament_g,
+                """INSERT INTO parts (project_id, name, copies, copies_printed, status, time_min, filament_g,
                    file_path, web_url, file_name, file_stored, file_size, priority, queue_pos,
                    spool_id, spool_booked_g, notes, created_at, done_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (proj_id, pt.get("name") or "Teil", max(1, int(pt.get("copies") or 1)), status,
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (proj_id, pt.get("name") or "Teil", copies, copies_printed, status,
                  float(pt.get("time_min") or 0), float(pt.get("filament_g") or 0),
                  pt.get("file_path") or "", pt.get("web_url") or "",
                  pt.get("file_name") or "", stored, int(pt.get("file_size") or 0),
@@ -718,7 +813,7 @@ def import_zip():
                  pt.get("queue_pos") if status == "queue" else None,
                  spool_id, booked, pt.get("notes") or "",
                  pt.get("created_at") or now(),
-                 pt.get("done_at") if idx >= PRINTED_IDX else None))
+                 pt.get("done_at") if copies_printed >= copies else None))
             n_parts += 1
     db.commit()
     return jsonify({"ok": True, "mode": mode,
@@ -732,17 +827,16 @@ def import_zip():
 @app.get("/api/stats")
 def stats():
     db = get_db()
-    rank = RANK_SQL.format(p="pt")
     g1 = db.execute("SELECT COUNT(*) projects FROM projects").fetchone()
     g2 = db.execute(
-        f"""SELECT COUNT(*) parts,
+        """SELECT COUNT(*) parts,
                   COALESCE(SUM(copies),0) copies,
-                  COALESCE(SUM(CASE WHEN {rank} >= 2 THEN copies ELSE 0 END),0) copies_done,
+                  COALESCE(SUM(copies_printed),0) copies_done,
                   COALESCE(SUM(time_min*copies),0) time_total,
-                  COALESCE(SUM(CASE WHEN {rank} <= 1 THEN time_min*copies ELSE 0 END),0) time_open,
+                  COALESCE(SUM((copies-copies_printed)*time_min),0) time_open,
                   COALESCE(SUM(filament_g*copies),0) filament_total,
-                  COALESCE(SUM(CASE WHEN {rank} <= 1 THEN filament_g*copies ELSE 0 END),0) filament_open
-           FROM parts pt""").fetchone()
+                  COALESCE(SUM((copies-copies_printed)*filament_g),0) filament_open
+           FROM parts""").fetchone()
     g3 = db.execute(
         "SELECT COALESCE(SUM(remaining_g * count),0) remaining, COALESCE(SUM(total_g * count),0) total FROM spools").fetchone()
     booked = db.execute(

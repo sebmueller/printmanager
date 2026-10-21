@@ -18,11 +18,16 @@
 <header>
   <h1>🖨️ PrintManager</h1>
   <nav id="tabs">
-    <button data-tab="dashboard" class="active">Dashboard</button>
-    <button data-tab="parts">Teile</button>
-    <button data-tab="queue">Warteschlange</button>
-    <button data-tab="spools">Spulen</button>
+    <button data-tab="dashboard" class="active" data-i18n="nav.dashboard">Dashboard</button>
+    <button data-tab="parts" data-i18n="nav.parts">Teile</button>
+    <button data-tab="queue" data-i18n="nav.queue">Warteschlange</button>
+    <button data-tab="spools" data-i18n="nav.spools">Spulen</button>
   </nav>
+  <div class="spacer"></div>
+  <select id="lang-select" class="lang-select" title="Sprache / Language">
+    <option value="de">Deutsch</option>
+    <option value="en">English</option>
+  </select>
 </header>
 
 <main>
@@ -37,33 +42,39 @@
 <div id="drop-overlay" hidden>
   <div class="drop-box">
     <div class="drop-icon">📥</div>
-    <p>STL hier ablegen zum Hochladen</p>
+    <p data-i18n="drag.hint">STL hier ablegen zum Hochladen</p>
   </div>
 </div>
 
 <!-- Upload-Modal -->
 <dialog id="upload-modal">
-  <h2>STL hochladen</h2>
+  <h2 data-i18n="upload.title">STL hochladen</h2>
   <div class="upload-grid">
-    <div class="upload-preview"><canvas id="upload-canvas"></canvas><p class="hint">Drehen: Ziehen &middot; Zoomen: Scrollen</p></div>
+    <div class="upload-preview">
+      <canvas id="upload-canvas"></canvas>
+      <p class="hint" data-i18n="viewer.hint">Drehen: Ziehen &middot; Zoomen: Scrollen</p>
+    </div>
     <div class="upload-form">
-      <label>Name
+      <label><span data-i18n="upload.name">Name</span>
         <input type="text" id="upload-name">
       </label>
-      <label>Projekt
+      <label><span data-i18n="upload.project">Projekt</span>
         <div class="row">
           <select id="upload-project"></select>
-          <button type="button" id="upload-new-project" class="btn small">Neu…</button>
+          <button type="button" id="upload-new-project" class="btn small" data-i18n="upload.new">Neu…</button>
         </div>
-        <input type="text" id="upload-new-project-name" placeholder="Neuer Projektname" hidden>
+        <input type="text" id="upload-new-project-name" data-i18n-ph="upload.newProjectName" placeholder="Neuer Projektname" hidden>
       </label>
-      <label>Kopien
+      <label><span data-i18n="upload.copies">Kopien</span>
         <input type="number" id="upload-copies" min="1" value="1">
       </label>
-      <label>Dateiname <span id="upload-file-label" class="muted"></span></label>
+      <label><span data-i18n="upload.spool">Filament/Spule</span>
+        <select id="upload-spool"></select>
+      </label>
+      <label><span data-i18n="upload.fileName">Dateiname</span> <span id="upload-file-label" class="muted"></span></label>
       <div class="modal-actions">
-        <button id="upload-cancel" class="btn">Abbrechen</button>
-        <button id="upload-save" class="btn primary">Speichern</button>
+        <button id="upload-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
+        <button id="upload-save" class="btn primary" data-i18n="common.save">Speichern</button>
       </div>
     </div>
   </div>
@@ -73,37 +84,40 @@
 <dialog id="part-modal">
   <h2 id="part-modal-title">Teil bearbeiten</h2>
   <form id="part-form">
-    <label id="part-project-label">Projekt
+    <label id="part-project-label"><span data-i18n="upload.project">Projekt</span>
       <select name="project_id"></select>
     </label>
-    <label>Name <input type="text" name="name" required></label>
-    <label>Kopien <input type="number" name="copies" min="1" value="1"></label>
-    <label>Status
+    <label><span data-i18n="part.name">Name</span> <input type="text" name="name" required></label>
+    <label><span data-i18n="part.copies">Kopien</span> <input type="number" name="copies" min="1" value="1"></label>
+    <label><span data-i18n="part.status">Status</span>
       <select name="status">
-        <option value="geplant">Geplant</option>
-        <option value="queue">In Queue</option>
-        <option value="gedruckt">Gedruckt</option>
-        <option value="montiert">Montiert</option>
+        <option value="geplant" data-i18n="status.geplant">Geplant</option>
+        <option value="queue" data-i18n="status.queue">In Queue</option>
+        <option value="gedruckt" data-i18n="status.gedruckt">Gedruckt</option>
+        <option value="montiert" data-i18n="status.montiert">Montiert</option>
       </select>
     </label>
     <div class="row">
-      <label>Zeit/Kopie (min) <input type="number" name="time_min" min="0" step="1"></label>
-      <label>Filament/Kopie (g) <input type="number" name="filament_g" min="0" step="0.1"></label>
+      <label><span data-i18n="part.timePerCopy">Zeit/Kopie (min)</span> <input type="number" name="time_min" min="0" step="1"></label>
+      <label><span data-i18n="part.filamentPerCopy">Filament/Kopie (g)</span> <input type="number" name="filament_g" min="0" step="0.1"></label>
     </div>
-    <label>Spule
+    <label><span data-i18n="part.spool">Spule</span>
       <select name="spool_id"><option value="">— keine —</option></select>
     </label>
-    <label>Lokaler Pfad (STL/3MF) <input type="text" name="file_path" placeholder="C:\Users\…\teil.stl"></label>
-    <label>Web-Link (Printables/Thingiverse) <input type="text" name="web_url" placeholder="https://…"></label>
-    <label>Notiz <input type="text" name="notes"></label>
-    <label>Priorität <input type="number" name="priority" value="0"></label>
-    <label id="part-file-label">STL-Datei <span id="part-file-info" class="muted"></span>
+    <label><span data-i18n="part.localPath">Lokaler Pfad (STL/3MF)</span> <input type="text" name="file_path" placeholder="C:\Users\…\teil.stl"></label>
+    <label><span data-i18n="part.webLink">Web-Link (Printables/Thingiverse)</span> <input type="text" name="web_url" placeholder="https://…"></label>
+    <label><span data-i18n="part.notes">Notiz</span> <input type="text" name="notes"></label>
+    <label><span data-i18n="part.priority">Priorität</span> <input type="number" name="priority" value="0"></label>
+    <label><span data-i18n="part.stlFile">STL-Datei</span> <span id="part-file-info" class="muted"></span>
       <input type="file" name="file" accept=".stl">
     </label>
-    <div id="part-preview" hidden><canvas id="part-canvas"></canvas><p class="hint">Drehen: Ziehen &middot; Zoomen: Scrollen</p></div>
+    <div id="part-preview" hidden>
+      <canvas id="part-canvas"></canvas>
+      <p class="hint" data-i18n="viewer.hint">Drehen: Ziehen &middot; Zoomen: Scrollen</p>
+    </div>
     <div class="modal-actions">
-      <button type="button" id="part-cancel" class="btn">Abbrechen</button>
-      <button type="submit" class="btn primary">Speichern</button>
+      <button type="button" id="part-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
+      <button type="submit" class="btn primary" data-i18n="common.save">Speichern</button>
     </div>
   </form>
 </dialog>
@@ -113,21 +127,39 @@
   <h2 id="spool-modal-title">Neue Spule</h2>
   <form id="spool-form">
     <div class="row">
-      <label>Material <input type="text" name="material" value="PLA" required></label>
-      <label>Farbe (Name) <input type="text" name="color" value="unbekannt"></label>
+      <label><span data-i18n="spoolModal.material">Material</span>
+        <select name="material">
+          <option value="PLA">PLA</option>
+          <option value="PLA+">PLA+</option>
+          <option value="PETG">PETG</option>
+          <option value="ABS">ABS</option>
+          <option value="ASA">ASA</option>
+          <option value="TPU">TPU</option>
+          <option value="PA">PA (Nylon)</option>
+          <option value="PC">PC</option>
+          <option value="PVA">PVA</option>
+          <option value="HIPS">HIPS</option>
+          <option value="PLA-CF">PLA-CF</option>
+          <option value="PETG-CF">PETG-CF</option>
+          <option value="__other" data-i18n="spoolModal.other">Andere…</option>
+        </select>
+        <input type="text" name="material_custom" placeholder="Material" hidden>
+      </label>
+      <label><span data-i18n="spoolModal.colorName">Farbe (Name)</span> <input type="text" name="color" value="unbekannt"></label>
     </div>
     <div class="row">
-      <label>Farbe <input type="color" name="color_hex" value="#888888"></label>
-      <label>Etikett/Notiz <input type="text" name="label"></label>
+      <label><span data-i18n="spoolModal.color">Farbe</span> <input type="color" name="color_hex" value="#888888"></label>
+      <label><span data-i18n="spoolModal.label">Etikett/Notiz</span> <input type="text" name="label"></label>
     </div>
+    <div id="color-presets" class="color-presets"></div>
     <div class="row">
-      <label>Gesamt (g) <input type="number" name="total_g" min="0" step="1" value="1000"></label>
-      <label>Rest (g) <input type="number" name="remaining_g" min="0" step="1" value="1000"></label>
+      <label><span data-i18n="spoolModal.total">Gesamt (g)</span> <input type="number" name="total_g" min="0" step="1" value="1000"></label>
+      <label><span data-i18n="spoolModal.remaining">Rest (g)</span> <input type="number" name="remaining_g" min="0" step="1" value="1000"></label>
     </div>
-    <label>Anzahl Spulen <input type="number" name="count" min="1" step="1" value="1"></label>
+    <label><span data-i18n="spoolModal.count">Anzahl Spulen</span> <input type="number" name="count" min="1" step="1" value="1"></label>
     <div class="modal-actions">
-      <button type="button" id="spool-cancel" class="btn">Abbrechen</button>
-      <button type="submit" class="btn primary">Speichern</button>
+      <button type="button" id="spool-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
+      <button type="submit" class="btn primary" data-i18n="common.save">Speichern</button>
     </div>
   </form>
 </dialog>
@@ -135,12 +167,13 @@
 <!-- 3D-Preview Modal -->
 <dialog id="preview-modal">
   <h2 id="preview-title">Vorschau</h2>
-  <div class="preview-wrap"><canvas id="preview-canvas"></canvas>
+  <div class="preview-wrap">
+    <canvas id="preview-canvas"></canvas>
     <div id="preview-info" class="muted"></div>
   </div>
   <div class="modal-actions">
-    <button id="preview-download" class="btn primary">⬇ Datei herunterladen</button>
-    <button id="preview-close" class="btn">Schließen</button>
+    <button id="preview-download" class="btn primary" data-i18n="preview.download">⬇ Datei herunterladen</button>
+    <button id="preview-close" class="btn" data-i18n="preview.close">Schließen</button>
   </div>
 </dialog>
 
@@ -148,32 +181,34 @@
 <dialog id="project-modal">
   <h2 id="project-modal-title">Neues Projekt</h2>
   <form id="project-form">
-    <label>Name <input type="text" name="name" required></label>
-    <label>Beschreibung <input type="text" name="description"></label>
+    <label><span data-i18n="projectModal.name">Name</span> <input type="text" name="name" required></label>
+    <label><span data-i18n="projectModal.description">Beschreibung</span> <input type="text" name="description"></label>
+    <label><span data-i18n="projectModal.notes">Notiz</span> <textarea name="notes" rows="3"></textarea></label>
+    <label><span data-i18n="projectModal.url">URL</span> <input type="url" name="url" placeholder="https://…"></label>
     <div class="modal-actions">
-      <button type="button" id="project-cancel" class="btn">Abbrechen</button>
-      <button type="submit" class="btn primary">Speichern</button>
+      <button type="button" id="project-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
+      <button type="submit" class="btn primary" data-i18n="common.save">Speichern</button>
     </div>
   </form>
 </dialog>
 
 <!-- Import Modal -->
 <dialog id="import-modal">
-  <h2>Import</h2>
+  <h2 data-i18n="import.title">Import</h2>
   <form id="import-form">
-    <label>ZIP-Datei (Export vom PrintManager)
+    <label><span data-i18n="import.zip">ZIP-Datei (Export vom PrintManager)</span>
       <input type="file" name="file" accept=".zip" required>
     </label>
-    <label>Modus
+    <label><span data-i18n="import.mode">Modus</span>
       <select name="mode">
-        <option value="merge">Anhängen – legt alles als neue Projekte/Spulen an</option>
-        <option value="restore">Überschreiben – LÖSCHT alle bestehenden Daten!</option>
+        <option value="merge" data-i18n="import.merge">Anhängen – legt alles als neue Projekte/Spulen an</option>
+        <option value="restore" data-i18n="import.restore">Überschreiben – LÖSCHT alle bestehenden Daten!</option>
       </select>
     </label>
-    <p class="hint" id="import-hint">Bei „Überschreiben" werden alle aktuellen Projekte, Teile und Spulen gelöscht und durch den Export ersetzt.</p>
+    <p class="hint" id="import-hint" data-i18n="import.hint">Bei „Überschreiben" werden alle aktuellen Projekte, Teile und Spulen gelöscht und durch den Export ersetzt.</p>
     <div class="modal-actions">
-      <button type="button" id="import-cancel" class="btn">Abbrechen</button>
-      <button type="submit" class="btn primary">Importieren</button>
+      <button type="button" id="import-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
+      <button type="submit" class="btn primary" data-i18n="import.button">Importieren</button>
     </div>
   </form>
 </dialog>
