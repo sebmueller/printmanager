@@ -180,8 +180,8 @@ async function renderDashboard() {
             <span>${t("dash.card.parts", { n: p.parts_count })}${p.runs > 1 ? ` · ${t("dash.card.runs", { n: p.runs })}` : ""}</span>
           </div>
           <div class="meta">
-            <span>⏱ ${fmtTime(p.time_open)}</span>
-            <span>🧵 ${fmtG(p.filament_open)}</span>
+            <span>${fmtTime(p.time_open)}</span>
+            <span>${fmtG(p.filament_open)}</span>
           </div>
         </div>`;
   }).join("") || `<div class="empty">${t("dash.empty")}</div>`}
@@ -343,7 +343,7 @@ function unprintButton(part) {
 
 function sliceButton(part) {
   if (!part.file_stored) return "";
-  return `<button class="icon-btn" data-act="slice" data-id="${part.id}" title="${t("actions.slice")}">⏱</button>`;
+  return `<button class="icon-btn" data-act="slice" data-id="${part.id}" title="${t("actions.slice")}">≈</button>`;
 }
 
 let slicePartId = null;
@@ -504,7 +504,7 @@ async function renderParts() {
         ${g.items.map((p) => `
         <tr data-part-id="${p.id}">
           <td>
-            ${p.file_stored ? `<button class="icon-btn" data-act="preview" data-id="${p.id}" title="${t("actions.preview")}">🧊</button>` : ""}
+            ${p.file_stored ? `<button class="icon-btn" data-act="preview" data-id="${p.id}" title="${t("actions.preview")}">3D</button>` : ""}
             <input class="inline-input w-name" type="text" data-id="${p.id}" data-field="name" value="${esc(p.name)}">
             ${p.web_url ? `<a class="icon-btn" href="${esc(p.web_url)}" target="_blank" rel="noopener" title="${t("actions.webLink")}">🔗</a>` : ""}
             ${p.notes ? `<span class="muted" title="${esc(p.notes)}"> 📝</span>` : ""}
@@ -519,7 +519,7 @@ async function renderParts() {
           <td><div class="actions">
             ${p.file_path ? `<button class="icon-btn" data-act="explorer" data-id="${p.id}" title="${t("actions.explorer")}">📁</button>` : ""}
             <button class="icon-btn" data-act="edit" data-id="${p.id}" title="${t("actions.edit")}">✏️</button>
-            <button class="icon-btn" data-act="delete" data-id="${p.id}" title="${t("actions.delete")}">🗑</button>
+            <button class="icon-btn" data-act="delete" data-id="${p.id}" title="${t("actions.delete")}">✕</button>
             ${unprintButton(p)}
             ${sliceButton(p)}
             ${partSlicerButton(p)}
@@ -591,9 +591,9 @@ async function renderProject() {
         ${parts.map((p) => `
         <tr>
           <td>
-            ${p.file_stored ? `<button class="icon-btn" data-act="preview" data-id="${p.id}" title="${t("actions.preview")}">🧊</button>` : ""}
+            ${p.file_stored ? `<button class="icon-btn" data-act="preview" data-id="${p.id}" title="${t("actions.preview")}">3D</button>` : ""}
             <input class="inline-input w-name" type="text" data-id="${p.id}" data-field="name" value="${esc(p.name)}">
-            ${p.file_stored ? `<button class="icon-btn" data-act="download" data-id="${p.id}" title="${t("actions.downloadNamed", { name: esc(p.file_name), size: fmtBytes(p.file_size) })}">⬇</button>` : ""}
+            ${p.file_stored ? `<button class="icon-btn" data-act="download" data-id="${p.id}" title="${t("actions.downloadNamed", { name: esc(p.file_name), size: fmtBytes(p.file_size) })}">↓</button>` : ""}
             ${p.web_url ? `<a class="icon-btn" href="${esc(p.web_url)}" target="_blank" rel="noopener" title="${t("actions.webLink")}">🔗</a>` : ""}
             ${p.notes ? `<span class="muted" title="${esc(p.notes)}"> 📝</span>` : ""}
           </td>
@@ -607,7 +607,7 @@ async function renderProject() {
           <td><div class="actions">
             ${p.file_path ? `<button class="icon-btn" data-act="explorer" data-id="${p.id}" title="${t("actions.explorer")}">📁</button>` : ""}
             <button class="icon-btn" data-act="edit" data-id="${p.id}" title="${t("actions.edit")}">✏️</button>
-            <button class="icon-btn" data-act="delete" data-id="${p.id}" title="${t("actions.delete")}">🗑</button>
+            <button class="icon-btn" data-act="delete" data-id="${p.id}" title="${t("actions.delete")}">✕</button>
             ${unprintButton(p)}
             ${sliceButton(p)}
             ${partSlicerButton(p)}
@@ -791,9 +791,9 @@ async function renderSpools() {
           <td class="num">${missing > 0 ? `<span class="badge low">${fmtG(missing)}</span>` : fmtG(0)}</td>
           <td class="num">${s.parts_count}</td>
           <td><div class="actions">
-            <button class="icon-btn" data-act="refill" data-id="${s.id}" title="${t("spools.refill")}">➕</button>
+            <button class="icon-btn" data-act="refill" data-id="${s.id}" title="${t("spools.refill")}">+</button>
             <button class="icon-btn" data-act="edit" data-id="${s.id}" title="${t("actions.edit")}">✏️</button>
-            <button class="icon-btn" data-act="delete" data-id="${s.id}" title="${t("actions.delete")}">🗑</button>
+            <button class="icon-btn" data-act="delete" data-id="${s.id}" title="${t("actions.delete")}">✕</button>
           </div></td>
         </tr>`;
   }).join("")}
@@ -1207,10 +1207,35 @@ window.addEventListener("drop", (e) => {
 
 // ---------------------------------------------------------------- init
 
+const VIEWS = ["dashboard", "parts", "project", "queue", "spools"];
+
+function bootFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const view = (params.get("view") || "").toLowerCase();
+  const projectId = parseInt(params.get("project"), 10);
+  if (VIEWS.includes(view)) {
+    if (view === "project" && projectId > 0) {
+      currentProjectId = projectId;
+      showView("project");
+    } else {
+      currentProjectId = null;
+      showView(view);
+    }
+    return;
+  }
+  showView("dashboard");
+}
+
 document.querySelectorAll("#tabs button").forEach((b) =>
   b.addEventListener("click", () => { currentProjectId = null; showView(b.dataset.tab); }));
 
 applyI18n();
+const params = new URLSearchParams(window.location.search);
+const langParam = (params.get("lang") || "").toLowerCase();
+if (langParam === "de" || langParam === "en") {
+  setLang(langParam);
+  applyI18n();
+}
 const langSelect = $("#lang-select");
 langSelect.value = getLang();
 langSelect.addEventListener("change", () => {
@@ -1219,4 +1244,4 @@ langSelect.addEventListener("change", () => {
   render();
 });
 
-showView("dashboard");
+bootFromUrl();

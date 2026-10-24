@@ -14,7 +14,7 @@
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 body {
-  margin: 0; font-family: "Segoe UI", system-ui, sans-serif;
+  margin: 0; font-family: "Segoe UI", "Segoe UI Emoji", "Noto Color Emoji", system-ui, sans-serif;
   background: var(--bg); color: var(--text); font-size: 14px;
 }
 header {
@@ -69,6 +69,7 @@ h2 { margin: 8px 0 14px; }
 .btn {
   background: var(--panel2); color: var(--text); border: 1px solid var(--border);
   padding: 8px 14px; border-radius: 8px; cursor: pointer; font-size: 13px;
+  text-decoration: none; display: inline-flex; align-items: center; gap: 4px;
 }
 .btn:hover { border-color: var(--accent); }
 .btn.primary { background: var(--accent); color: #1a1205; border-color: var(--accent); font-weight: 600; }
@@ -79,6 +80,7 @@ h2 { margin: 8px 0 14px; }
 
 table { width: 100%; border-collapse: collapse; background: var(--panel); border-radius: 10px; overflow: hidden; }
 th, td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+#view-parts td:first-child, #view-project td:first-child { white-space: nowrap; }
 th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
 th.sortable { cursor: pointer; user-select: none; }
 th.sortable:hover { color: var(--text); }
@@ -217,7 +219,7 @@ td .actions { display: flex; gap: 2px; }
 }
 .inline-input:hover { border-color: var(--border); background: var(--bg); }
 .inline-input:focus { outline: none; border-color: var(--accent); background: var(--bg); }
-.inline-input.w-name { min-width: 140px; max-width: 260px; }
+.inline-input.w-name { min-width: 110px; max-width: 190px; }
 .inline-input.w-num { width: 70px; text-align: right; }
 .inline-input.w-prio { width: 56px; text-align: right; }
 

@@ -17,6 +17,30 @@ This project was created with assistance from AI tools.
 - View planned filament demand and shortages per spool group
 - Export individual projects or a complete backup, including STL files, as ZIP archives
 
+## Screenshots
+
+The screenshots use synthetic demo data; no personal projects or STL files are included.
+
+<details>
+<summary>View screenshots</summary>
+
+### Dashboard
+![PrintManager dashboard](docs/screenshots/dashboard.png)
+
+### Project details
+![Project details and parts](docs/screenshots/project.png)
+
+### Parts list
+![Grouped, editable parts list](docs/screenshots/parts.png)
+
+### Print queue
+![Print queue and per-copy progress](docs/screenshots/queue.png)
+
+### Filament inventory
+![Filament stock, planned demand, and shortages](docs/screenshots/filament.png)
+
+</details>
+
 ## Requirements
 
 - Python 3.10 or newer; Python 3.13 is recommended
@@ -219,6 +243,10 @@ Dieses Projekt wurde mit Unterstützung von KI-Tools erstellt.
 - Teilfortschritt erfassen, fehlerhafte Kopien ohne Filamenterstattung zurücknehmen oder eine versehentliche Fertigmeldung samt Filamentbuchung rückgängig machen
 - Offenen Filamentbedarf und Fehlmengen je Spulengruppe anzeigen
 - Einzelprojekte oder Komplettsicherungen einschließlich STL-Dateien als ZIP exportieren und importieren
+
+## Screenshots
+
+Die Screenshots verwenden ausschließlich synthetische Demodaten; persönliche Projekte und STL-Dateien sind nicht enthalten. Die englischsprachige Screenshot-Galerie steht oben im englischen Abschnitt.
 
 ## Voraussetzungen
 

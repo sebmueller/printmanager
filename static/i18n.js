@@ -6,8 +6,8 @@ const DICT = {
     "nav.spools": "Filament",
 
     "dash.projects": "Projekte",
-    "dash.import": "⬆ Import",
-    "dash.backup": "⬇ Backup (alles)",
+    "dash.import": "↑ Import",
+    "dash.backup": "↓ Backup (alles)",
     "dash.newProject": "+ Neues Projekt",
     "dash.dropHint": "Tipp: STL-Datei einfach aufs Fenster ziehen",
     "dash.stat.projects": "Projekte",
@@ -27,8 +27,8 @@ const DICT = {
 
     "project.back": "← Zurück",
     "project.edit": "✏️ Bearbeiten",
-    "project.export": "⬇ Export",
-    "project.delete": "🗑 Projekt löschen",
+    "project.export": "↓ Export",
+    "project.delete": "✕ Projekt löschen",
     "project.addPart": "+ Teil",
     "project.empty": "Noch keine Teile – zieh eine STL hierher oder lege ein Teil an.",
     "project.confirmDelete": "Projekt \"{name}\" inkl. aller Teile löschen?",
@@ -47,7 +47,7 @@ const DICT = {
     "table.totalCopies": "Gesamt",
 
     "parts.title": "Teile",
-    "parts.summary": "Offen: {n} Teile · ⏱ {time} · 🧵 {fil}",
+    "parts.summary": "Offen: {n} Teile · {time} · {fil}",
     "parts.filter": "Filter",
     "parts.all": "Alle",
     "parts.onlyOpen": "Nur offene",
@@ -145,7 +145,7 @@ const DICT = {
 
     "preview.loading": "Lade Vorschau…",
     "preview.dims": "Maße: {x} × {y} × {z} mm · {tri} Dreiecke · {size}",
-    "preview.download": "⬇ Datei herunterladen",
+    "preview.download": "↓ Datei herunterladen",
     "preview.close": "Schließen",
     "preview.failed": "Vorschau fehlgeschlagen: {msg}",
     "preview.fileMissing": "Datei nicht gefunden",
@@ -228,8 +228,8 @@ const DICT = {
     "nav.spools": "Filament",
 
     "dash.projects": "Projects",
-    "dash.import": "⬆ Import",
-    "dash.backup": "⬇ Backup (all)",
+    "dash.import": "↑ Import",
+    "dash.backup": "↓ Backup (all)",
     "dash.newProject": "+ New project",
     "dash.dropHint": "Tip: just drag an STL file onto the window",
     "dash.stat.projects": "Projects",
@@ -249,8 +249,8 @@ const DICT = {
 
     "project.back": "← Back",
     "project.edit": "✏️ Edit",
-    "project.export": "⬇ Export",
-    "project.delete": "🗑 Delete project",
+    "project.export": "↓ Export",
+    "project.delete": "✕ Delete project",
     "project.addPart": "+ Part",
     "project.empty": "No parts yet – drop an STL here or create a part.",
     "project.confirmDelete": "Delete project \"{name}\" including all parts?",
@@ -269,7 +269,7 @@ const DICT = {
     "table.totalCopies": "Total",
 
     "parts.title": "Parts",
-    "parts.summary": "Open: {n} parts · ⏱ {time} · 🧵 {fil}",
+    "parts.summary": "Open: {n} parts · {time} · {fil}",
     "parts.filter": "Filter",
     "parts.all": "All",
     "parts.onlyOpen": "Open only",
@@ -368,7 +368,7 @@ const DICT = {
 
     "preview.loading": "Loading preview…",
     "preview.dims": "Size: {x} × {y} × {z} mm · {tri} triangles · {size}",
-    "preview.download": "⬇ Download file",
+    "preview.download": "↓ Download file",
     "preview.close": "Close",
     "preview.failed": "Preview failed: {msg}",
     "preview.fileMissing": "File not found",
