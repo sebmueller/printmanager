@@ -177,7 +177,7 @@ async function renderDashboard() {
           <div class="progress"><div style="width:${pct}%"></div></div>
           <div class="meta">
             <span>${t("dash.card.copies", { done: p.copies_done, total: p.copies_total, pct })}</span>
-            <span>${t("dash.card.parts", { n: p.parts_count })}</span>
+            <span>${t("dash.card.parts", { n: p.parts_count })}${p.runs > 1 ? ` · ${t("dash.card.runs", { n: p.runs })}` : ""}</span>
           </div>
           <div class="meta">
             <span>⏱ ${fmtTime(p.time_open)}</span>
@@ -244,6 +244,79 @@ function attachInlineEditing(view) {
     el.addEventListener("keydown", (e) => { if (e.key === "Enter") el.blur(); }));
 }
 
+// ---------------------------------------------------------------- settings
+
+let slicerProfilesCache = null;
+
+async function getSlicerProfiles(force = false) {
+  if (!slicerProfilesCache || force) {
+    slicerProfilesCache = await api("/api/slicer/profiles");
+  }
+  return slicerProfilesCache;
+}
+
+function fillProfileSelect(sel, list, selectedPath) {
+  sel.innerHTML = `<option value="">${t("slice.none")}</option>` +
+    (list || []).map((p) =>
+      `<option value="${esc(p.path)}" ${p.path === selectedPath ? "selected" : ""}>${esc(p.name)}</option>`).join("");
+}
+
+async function loadSettingsIntoForm() {
+  try {
+    const [s, profiles] = await Promise.all([api("/api/settings"), getSlicerProfiles()]);
+    $("#settings-slicer").value = s.slicer_path || s.detected_path || "";
+    const saved = s.profiles || {};
+    fillProfileSelect($("#settings-machine"), profiles.machine, saved.machine || "");
+    fillProfileSelect($("#settings-process"), profiles.process, saved.process || "");
+    fillProfileSelect($("#settings-filament"), profiles.filament, saved.filament || "");
+    $("#settings-status").textContent = s.detected_path
+      ? t("settings.detected", { path: s.detected_path })
+      : t("settings.none");
+  } catch { /* Fehler bereits als Toast */ }
+}
+
+$("#btn-settings").addEventListener("click", async () => {
+  $("#settings-status").textContent = "";
+  $("#settings-modal").showModal();
+  await loadSettingsIntoForm();
+});
+
+$("#settings-detect").addEventListener("click", async () => {
+  try {
+    const s = await api("/api/settings");
+    if (s.detected_path) {
+      $("#settings-slicer").value = s.detected_path;
+      $("#settings-status").textContent = t("settings.detected", { path: s.detected_path });
+      const profiles = await getSlicerProfiles(true);
+      const saved = s.profiles || {};
+      fillProfileSelect($("#settings-machine"), profiles.machine, saved.machine || "");
+      fillProfileSelect($("#settings-process"), profiles.process, saved.process || "");
+      fillProfileSelect($("#settings-filament"), profiles.filament, saved.filament || "");
+    } else {
+      $("#settings-status").textContent = t("settings.none");
+    }
+  } catch { /* Fehler bereits als Toast */ }
+});
+
+$("#settings-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  try {
+    await api("/api/settings", {
+      method: "PUT",
+      json: {
+        slicer_path: $("#settings-slicer").value.trim(),
+        profiles: {
+          machine: $("#settings-machine").value,
+          process: $("#settings-process").value,
+          filament: $("#settings-filament").value,
+        },
+      },
+    });
+    $("#settings-modal").close();
+    toast(t("settings.saved"));
+  } catch { /* Fehler bereits als Toast */ }
+});
+
 // ---------------------------------------------------------------- parts (global)
 
 let partsSortKey = "status";
@@ -257,6 +330,85 @@ function partDownloadButton(part) {
   }
   return `<a class="btn small download-btn" href="/api/parts/${part.id}/file" download="${esc(part.file_name || t("common.stlFallback"))}" title="${t("actions.downloadNamed", { name: esc(part.file_name), size: fmtBytes(part.file_size) })}">${t("actions.downloadStl")}</a>`;
 }
+
+function partSlicerButton(part) {
+  if (!part.file_stored) return "";
+  return `<button class="icon-btn" data-act="slicer" data-id="${part.id}" title="${t("actions.openSlicer")}">🧩</button>`;
+}
+
+function unprintButton(part) {
+  if (!part.copies_printed) return "";
+  return `<button class="icon-btn" data-act="unprint" data-id="${part.id}" title="${t("actions.unprint")}">−1</button>`;
+}
+
+function sliceButton(part) {
+  if (!part.file_stored) return "";
+  return `<button class="icon-btn" data-act="slice" data-id="${part.id}" title="${t("actions.slice")}">⏱</button>`;
+}
+
+let slicePartId = null;
+
+async function openSliceModal(part) {
+  slicePartId = part.id;
+  $("#slice-text").textContent = t("slice.text", { name: part.name });
+  $("#slice-status").textContent = "";
+  $("#slice-run").disabled = false;
+  $("#slice-modal").showModal();
+  try {
+    const [s, profiles] = await Promise.all([api("/api/settings"), getSlicerProfiles()]);
+    const saved = s.profiles || {};
+    fillProfileSelect($("#slice-machine"), profiles.machine, saved.machine || "");
+    fillProfileSelect($("#slice-process"), profiles.process, saved.process || "");
+    fillProfileSelect($("#slice-filament"), profiles.filament, saved.filament || "");
+  } catch { /* Fehler bereits als Toast */ }
+}
+
+$("#slice-run").addEventListener("click", async () => {
+  const id = slicePartId;
+  if (!id) return;
+  const profiles = {
+    machine: $("#slice-machine").value,
+    process: $("#slice-process").value,
+    filament: $("#slice-filament").value,
+  };
+  if (!profiles.machine || !profiles.process || !profiles.filament) {
+    toast(t("slice.needProfiles"), true);
+    return;
+  }
+  const btn = $("#slice-run");
+  btn.disabled = true;
+  $("#slice-status").textContent = t("slice.running");
+  try {
+    const res = await api(`/api/parts/${id}/slice`, { method: "POST", json: { profiles } });
+    $("#slice-modal").close();
+    toast(t("slice.done", { time: fmtTime(res.time_min), filament: fmtG(res.filament_g) }));
+    render();
+  } catch {
+    $("#slice-status").textContent = "";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+let unprintPartId = null;
+
+function openUnprintModal(part) {
+  unprintPartId = part.id;
+  $("#unprint-text").textContent = t("unprint.text", { name: part.name });
+  $("#unprint-modal").showModal();
+}
+
+async function doUnprint(refund) {
+  const id = unprintPartId;
+  if (!id) return;
+  $("#unprint-modal").close();
+  await api(`/api/parts/${id}/unprint`, { json: { copies: 1, refund } });
+  toast(t(refund ? "actions.unprintRefunded" : "actions.unprintWasted"));
+  render();
+}
+
+$("#unprint-waste").addEventListener("click", () => doUnprint(false));
+$("#unprint-refund").addEventListener("click", () => doUnprint(true));
 
 async function openPart(id) {
   partsFilter = "alle";
@@ -282,8 +434,9 @@ async function renderParts() {
     switch (partsSortKey) {
       case "name": return p.name.toLowerCase();
       case "copies": return p.copies;
-      case "time": return p.time_min * p.copies;
-      case "filament": return p.filament_g * p.copies;
+      case "printed": return p.copies_printed;
+      case "time": return p.time_min * p.copies * (p.project_runs || 1);
+      case "filament": return p.filament_g * p.copies * (p.project_runs || 1);
       case "color": return (p.spool_color || "~").toLowerCase();
       case "status": return STATUS_RANK[p.status];
       case "priority": return p.priority;
@@ -308,9 +461,9 @@ async function renderParts() {
   }
   groups.sort((a, b) => a.name.localeCompare(b.name, getLang() === "de" ? "de" : "en"));
 
-  const open = list.filter((p) => p.copies_printed < p.copies);
-  const sumTime = open.reduce((s, p) => s + p.time_min * (p.copies - p.copies_printed), 0);
-  const sumFil = open.reduce((s, p) => s + p.filament_g * (p.copies - p.copies_printed), 0);
+  const open = list.filter((p) => p.copies_printed < p.copies * (p.project_runs || 1));
+  const sumTime = open.reduce((s, p) => s + p.time_min * (p.copies * (p.project_runs || 1) - p.copies_printed), 0);
+  const sumFil = open.reduce((s, p) => s + p.filament_g * (p.copies * (p.project_runs || 1) - p.copies_printed), 0);
   const arrow = (k) => partsSortKey === k ? (partsSortDir === 1 ? " ▲" : " ▼") : "";
 
   const view = $("#view-parts");
@@ -332,6 +485,7 @@ async function renderParts() {
       <thead><tr>
         <th class="sortable" data-sort="name">${t("table.name")}${arrow("name")}</th>
         <th class="sortable num" data-sort="copies">${t("table.copies")}${arrow("copies")}</th>
+        <th class="sortable num" data-sort="printed">${t("table.printed")}${arrow("printed")}</th>
         <th class="sortable" data-sort="status">${t("table.status")}${arrow("status")}</th>
         <th class="sortable num" data-sort="time">${t("part.timePerCopy")}${arrow("time")}</th>
         <th class="sortable num" data-sort="filament">${t("part.filamentPerCopy")}${arrow("filament")}</th>
@@ -342,7 +496,7 @@ async function renderParts() {
       <tbody>
         ${groups.map((g) => `
         <tr class="group-row">
-          <td colspan="8">
+          <td colspan="9">
             <a href="#" class="proj-link" data-project="${g.id}">${esc(g.name)}</a>
             <span class="muted">${t("dash.card.parts", { n: g.items.length })}</span>
           </td>
@@ -355,16 +509,20 @@ async function renderParts() {
             ${p.web_url ? `<a class="icon-btn" href="${esc(p.web_url)}" target="_blank" rel="noopener" title="${t("actions.webLink")}">🔗</a>` : ""}
             ${p.notes ? `<span class="muted" title="${esc(p.notes)}"> 📝</span>` : ""}
           </td>
-          <td class="num"><input class="inline-input w-num" type="number" min="1" step="1" data-id="${p.id}" data-field="copies" value="${p.copies}"></td>
+          <td class="num"><input class="inline-input w-num" type="number" min="1" step="1" data-id="${p.id}" data-field="copies" value="${p.copies}" title="${t("table.totalCopies")}: ${p.copies * (p.project_runs || 1)}"></td>
+          <td class="num">${p.copies_printed} / ${p.copies * (p.project_runs || 1)}</td>
           <td><select class="status-sel" data-id="${p.id}">${statusOptions(p.status)}</select></td>
-          <td class="num"><input class="inline-input w-num" type="number" min="0" step="1" data-id="${p.id}" data-field="time_min" value="${p.time_min}" title="${t("table.time")}: ${fmtTime(p.time_min * p.copies)}"></td>
-          <td class="num"><input class="inline-input w-num" type="number" min="0" step="0.1" data-id="${p.id}" data-field="filament_g" value="${p.filament_g}" title="${t("table.filament")}: ${fmtG(p.filament_g * p.copies)}"></td>
+          <td class="num"><input class="inline-input w-num" type="number" min="0" step="1" data-id="${p.id}" data-field="time_min" value="${p.time_min}" title="${t("table.time")}: ${fmtTime(p.time_min * p.copies * (p.project_runs || 1))}"></td>
+          <td class="num"><input class="inline-input w-num" type="number" min="0" step="0.1" data-id="${p.id}" data-field="filament_g" value="${p.filament_g}" title="${t("table.filament")}: ${fmtG(p.filament_g * p.copies * (p.project_runs || 1))}"></td>
           <td><select class="status-sel" data-id="${p.id}" data-field="spool_id">${spoolOptions(p.spool_id)}</select></td>
           <td class="num"><input class="inline-input w-prio" type="number" step="1" data-id="${p.id}" data-field="priority" value="${p.priority}"></td>
           <td><div class="actions">
             ${p.file_path ? `<button class="icon-btn" data-act="explorer" data-id="${p.id}" title="${t("actions.explorer")}">📁</button>` : ""}
             <button class="icon-btn" data-act="edit" data-id="${p.id}" title="${t("actions.edit")}">✏️</button>
             <button class="icon-btn" data-act="delete" data-id="${p.id}" title="${t("actions.delete")}">🗑</button>
+            ${unprintButton(p)}
+            ${sliceButton(p)}
+            ${partSlicerButton(p)}
             ${partDownloadButton(p)}
           </div></td>
         </tr>`).join("")}`).join("")}
@@ -413,9 +571,19 @@ async function renderProject() {
       <button class="btn primary" id="btn-add-part">${t("project.addPart")}</button>
     </div>
     ${project.notes ? `<div class="project-notes">📝 ${esc(project.notes)}</div>` : ""}
+    <div class="toolbar">
+      <label class="muted" style="display:flex;align-items:center;gap:6px">${t("project.runs")}
+        <input class="inline-input w-num" id="project-runs" type="number" min="1" step="1" value="${project.runs}">
+      </label>
+      <span class="muted">${t("parts.summary", {
+        n: parts.filter((p) => p.copies_printed < p.copies * project.runs).length,
+        time: fmtTime(parts.reduce((s, p) => s + p.time_min * (p.copies * project.runs - Math.min(p.copies_printed, p.copies * project.runs)), 0)),
+        fil: fmtG(parts.reduce((s, p) => s + p.filament_g * (p.copies * project.runs - Math.min(p.copies_printed, p.copies * project.runs)), 0)),
+      })}</span>
+    </div>
     <table>
       <thead><tr>
-        <th>${t("table.name")}</th><th class="num">${t("table.copies")}</th><th>${t("table.status")}</th>
+        <th>${t("table.name")}</th><th class="num">${t("table.copies")}</th><th class="num">${t("table.printed")}</th><th>${t("table.status")}</th>
         <th class="num">${t("part.timePerCopy")}</th><th class="num">${t("part.filamentPerCopy")}</th>
         <th>${t("table.spool")}</th><th class="num">${t("table.priority")}</th><th></th>
       </tr></thead>
@@ -429,16 +597,20 @@ async function renderProject() {
             ${p.web_url ? `<a class="icon-btn" href="${esc(p.web_url)}" target="_blank" rel="noopener" title="${t("actions.webLink")}">🔗</a>` : ""}
             ${p.notes ? `<span class="muted" title="${esc(p.notes)}"> 📝</span>` : ""}
           </td>
-          <td class="num"><input class="inline-input w-num" type="number" min="1" step="1" data-id="${p.id}" data-field="copies" value="${p.copies}"></td>
+          <td class="num"><input class="inline-input w-num" type="number" min="1" step="1" data-id="${p.id}" data-field="copies" value="${p.copies}" title="${t("table.totalCopies")}: ${p.copies * project.runs}"></td>
+          <td class="num">${p.copies_printed} / ${p.copies * project.runs}</td>
           <td><select class="status-sel" data-id="${p.id}">${statusOptions(p.status)}</select></td>
-          <td class="num"><input class="inline-input w-num" type="number" min="0" step="1" data-id="${p.id}" data-field="time_min" value="${p.time_min}"></td>
-          <td class="num"><input class="inline-input w-num" type="number" min="0" step="0.1" data-id="${p.id}" data-field="filament_g" value="${p.filament_g}"></td>
+          <td class="num"><input class="inline-input w-num" type="number" min="0" step="1" data-id="${p.id}" data-field="time_min" value="${p.time_min}" title="${t("table.time")}: ${fmtTime(p.time_min * p.copies * project.runs)}"></td>
+          <td class="num"><input class="inline-input w-num" type="number" min="0" step="0.1" data-id="${p.id}" data-field="filament_g" value="${p.filament_g}" title="${t("table.filament")}: ${fmtG(p.filament_g * p.copies * project.runs)}"></td>
           <td><select class="status-sel" data-id="${p.id}" data-field="spool_id">${spoolOptions(p.spool_id)}</select></td>
           <td class="num"><input class="inline-input w-prio" type="number" step="1" data-id="${p.id}" data-field="priority" value="${p.priority}"></td>
           <td><div class="actions">
             ${p.file_path ? `<button class="icon-btn" data-act="explorer" data-id="${p.id}" title="${t("actions.explorer")}">📁</button>` : ""}
             <button class="icon-btn" data-act="edit" data-id="${p.id}" title="${t("actions.edit")}">✏️</button>
             <button class="icon-btn" data-act="delete" data-id="${p.id}" title="${t("actions.delete")}">🗑</button>
+            ${unprintButton(p)}
+            ${sliceButton(p)}
+            ${partSlicerButton(p)}
           </div></td>
         </tr>`).join("")}
       </tbody>
@@ -451,6 +623,11 @@ async function renderProject() {
     if (!confirm(t("project.confirmDelete", { name: project.name }))) return;
     await api(`/api/projects/${project.id}`, { method: "DELETE" });
     showView("dashboard");
+  });
+  $("#project-runs").addEventListener("change", async (e) => {
+    const runs = Math.max(1, parseInt(e.target.value) || 1);
+    await api(`/api/projects/${project.id}`, { method: "PUT", json: { runs } });
+    render();
   });
   attachInlineEditing(view);
   view.querySelectorAll("[data-act]").forEach((btn) =>
@@ -469,6 +646,13 @@ async function partAction(act, id) {
     return;
   }
   if (act === "explorer") { await api(`/api/parts/${id}/open-explorer`, { method: "POST" }); return; }
+  if (act === "slicer") {
+    await api(`/api/parts/${id}/open-slicer`, { method: "POST" });
+    toast(t("actions.slicerStarted"));
+    return;
+  }
+  if (act === "unprint") return openUnprintModal(part);
+  if (act === "slice") return openSliceModal(part);
   if (act === "edit") return openPartModal(part);
   if (act === "delete") {
     if (!confirm(t("confirm.deletePart", { name: part.name }))) return;
@@ -479,6 +663,8 @@ async function partAction(act, id) {
 
 // ---------------------------------------------------------------- queue
 
+let queueSearch = "";
+
 async function renderQueue() {
   const parts = await api("/api/parts?status=queue");
   const projects = await api("/api/projects");
@@ -486,32 +672,53 @@ async function renderQueue() {
   const view = $("#view-queue");
   view.innerHTML = `
     <div class="toolbar"><h2 style="margin:0">${t("queue.title")}</h2>
-      <span class="muted">${t("queue.hint")}</span></div>
-    ${parts.map((p, i) => `
-      <div class="queue-item" data-id="${p.id}">
+      <span class="muted">${t("queue.hint")}</span>
+      <div class="spacer"></div>
+      <input class="inline-input queue-search" id="queue-search" type="search"
+             placeholder="${t("queue.search")}" value="${esc(queueSearch)}">
+    </div>
+    <div id="queue-list">
+    ${parts.map((p, i) => {
+    const total = p.copies * (p.project_runs || 1);
+    const remaining = total - p.copies_printed;
+    return `
+      <div class="queue-item" data-id="${p.id}" data-search="${esc((p.name + " " + pname(p.project_id)).toLowerCase())}">
         <div class="pos">${i + 1}</div>
         <div class="name"><button type="button" class="part-link" data-open-part="${p.id}" title="${t("actions.openPart")}">${esc(p.name)}</button>
           <div class="proj">${esc(pname(p.project_id))} · ${t("queue.progress", {
-            printed: p.copies_printed, total: p.copies, remaining: p.copies - p.copies_printed,
-          })} · ${fmtTime(p.time_min * (p.copies - p.copies_printed))} · ${fmtG(p.filament_g * (p.copies - p.copies_printed))}</div>
+      printed: p.copies_printed, total, remaining,
+    })} · ${fmtTime(p.time_min * remaining)} · ${fmtG(p.filament_g * remaining)}</div>
         </div>
         <div class="meta">${p.spool_color_hex ? `<span class="swatch" style="background:${esc(p.spool_color_hex)}"></span>` : ""}</div>
+        ${unprintButton(p)}
         <div class="queue-print-control">
-          <input class="queue-print-count" type="number" min="1" max="${p.copies - p.copies_printed}" value="1" data-print-count="${p.id}" aria-label="${t("queue.printCount")}">
+          <input class="queue-print-count" type="number" min="1" max="${remaining}" value="1" data-print-count="${p.id}" aria-label="${t("queue.printCount")}">
           <button class="btn small" data-print="${p.id}" title="${t("queue.recordPrint")}">${t("queue.recordPrint")}</button>
         </div>
         <div class="arrows">
           <button class="icon-btn" data-move="-1" ${i === 0 ? "disabled" : ""}>▲</button>
           <button class="icon-btn" data-move="1" ${i === parts.length - 1 ? "disabled" : ""}>▼</button>
         </div>
+        ${partSlicerButton(p)}
         ${partDownloadButton(p)}
-      </div>`).join("") || `<div class="empty">${t("queue.empty")}</div>`}`;
+      </div>`;
+  }).join("") || `<div class="empty">${t("queue.empty")}</div>`}
+    </div>
+    <div class="empty" id="queue-no-match" hidden>${t("queue.noMatch")}</div>`;
+
+  $("#queue-search").addEventListener("input", (e) => {
+    queueSearch = e.target.value;
+    applyQueueFilter();
+  });
+  applyQueueFilter();
   view.querySelectorAll(".queue-item").forEach((item) =>
     item.addEventListener("click", (e) => {
       const control = e.target.closest("button, a, input, select");
       if (control && !control.matches("[data-open-part]")) return;
       openPart(+item.dataset.id);
     }));
+  view.querySelectorAll("[data-act]").forEach((btn) =>
+    btn.addEventListener("click", () => partAction(btn.dataset.act, +btn.dataset.id)));
   view.querySelectorAll("[data-move]").forEach((btn) =>
     btn.addEventListener("click", async () => {
       const dir = +btn.dataset.move;
@@ -530,23 +737,44 @@ async function renderQueue() {
     }));
 }
 
+function applyQueueFilter() {
+  const query = queueSearch.trim().toLowerCase();
+  const items = document.querySelectorAll("#queue-list .queue-item");
+  let visible = 0;
+  items.forEach((item) => {
+    const match = !query || (item.dataset.search || "").includes(query);
+    item.hidden = !match;
+    if (match) visible++;
+  });
+  const none = $("#queue-no-match");
+  if (none) none.hidden = !(query && items.length && visible === 0);
+}
+
 // ---------------------------------------------------------------- spools
 
 async function renderSpools() {
-  const spools = await api("/api/spools");
+  const [spools, stats] = await Promise.all([api("/api/spools"), api("/api/stats")]);
   spoolsCache = spools;
+  const plannedTotal = spools.reduce((sum, s) => sum + s.planned_g, 0) + stats.filament_unassigned_g;
+  const missingTotal = spools.reduce((sum, s) => sum + s.missing_g, 0) + stats.filament_unassigned_g;
   const view = $("#view-spools");
   view.innerHTML = `
-    <div class="toolbar"><h2 style="margin:0">${t("spools.title")}</h2><div class="spacer"></div>
+    <div class="toolbar"><h2 style="margin:0">${t("spools.title")}</h2>
+      <span class="muted">${t("spools.summary", { planned: fmtG(plannedTotal), missing: fmtG(missingTotal) })}</span>
+      <div class="spacer"></div>
       <button class="btn primary" id="btn-new-spool">${t("spools.new")}</button></div>
+    ${stats.filament_unassigned_g > 0 ? `<div class="unassigned-warning">${t("spools.unassigned", { amount: fmtG(stats.filament_unassigned_g) })}</div>` : ""}
     <table>
       <thead><tr><th>${t("spools.color")}</th><th>${t("spools.material")}</th><th>${t("spools.label")}</th>
         <th class="num">${t("spools.count")}</th><th class="num">${t("spools.stock")}</th>
+        <th class="num">${t("spools.planned")}</th><th class="num">${t("spools.missing")}</th>
         <th>${t("spools.linked")}</th><th></th></tr></thead>
       <tbody>
         ${spools.map((s) => {
-    const avail = (s.remaining_g || 0) * (s.count || 1);
+    const avail = s.available_g;
     const cap = (s.total_g || 0) * (s.count || 1);
+    const planned = s.planned_g;
+    const missing = s.missing_g;
     const pct = cap ? Math.round(100 * avail / cap) : 0;
     const low = pct < 15;
     return `
@@ -559,6 +787,8 @@ async function renderSpools() {
             <div class="progress" style="width:120px"><div style="width:${pct}%; background:${low ? "var(--bad)" : "var(--ok)"}"></div></div>
             ${fmtG(avail)} / ${fmtG(cap)} ${low ? `<span class="badge low">${t("spools.low")}</span>` : ""}
           </td>
+          <td class="num">${fmtG(planned)}</td>
+          <td class="num">${missing > 0 ? `<span class="badge low">${fmtG(missing)}</span>` : fmtG(0)}</td>
           <td class="num">${s.parts_count}</td>
           <td><div class="actions">
             <button class="icon-btn" data-act="refill" data-id="${s.id}" title="${t("spools.refill")}">➕</button>
@@ -593,10 +823,14 @@ function fillProjectSelect(sel, selectedId) {
     projectsCache.map((p) => `<option value="${p.id}" ${p.id === selectedId ? "selected" : ""}>${esc(p.name)}</option>`).join("");
 }
 
+function spoolAvailable(s) {
+  return (s.remaining_g || 0) + Math.max(0, (s.count || 1) - 1) * (s.total_g || 0);
+}
+
 function spoolOptions(selectedId) {
   return `<option value="">${t("spools.none")}</option>` +
     spoolsCache.map((s) =>
-      `<option value="${s.id}" ${s.id === selectedId ? "selected" : ""}>${esc(s.color)} · ${esc(s.material)} (${t("spools.available", { g: fmtG((s.remaining_g || 0) * (s.count || 1)) })})</option>`).join("");
+      `<option value="${s.id}" ${s.id === selectedId ? "selected" : ""}>${esc(s.color)} · ${esc(s.material)} (${t("spools.available", { g: fmtG(spoolAvailable(s)) })})</option>`).join("");
 }
 
 function fillSpoolSelect(sel, selectedId) {
@@ -612,12 +846,16 @@ function openProjectModal(project = null) {
     form.description.value = project.description;
     form.notes.value = project.notes || "";
     form.url.value = project.url || "";
+    form.runs.value = project.runs || 1;
+  } else {
+    form.runs.value = 1;
   }
   form.onsubmit = async (e) => {
     e.preventDefault();
     const data = {
       name: form.name.value, description: form.description.value,
       notes: form.notes.value, url: form.url.value,
+      runs: Math.max(1, parseInt(form.runs.value) || 1),
     };
     if (project) await api(`/api/projects/${project.id}`, { method: "PUT", json: data });
     else await api("/api/projects", { json: data });
@@ -723,10 +961,16 @@ async function openPartModal(part = null, projectId = null) {
 
 $("#part-modal").addEventListener("close", disposePartViewer);
 
+$("#unprint-modal").addEventListener("close", () => { unprintPartId = null; });
+$("#slice-modal").addEventListener("close", () => { slicePartId = null; });
+
 for (const [btn, dlg] of [
   ["#part-cancel", "#part-modal"],
   ["#spool-cancel", "#spool-modal"],
   ["#project-cancel", "#project-modal"],
+  ["#settings-cancel", "#settings-modal"],
+  ["#unprint-cancel", "#unprint-modal"],
+  ["#slice-cancel", "#slice-modal"],
 ]) {
   $(btn).addEventListener("click", () => $(dlg).close());
 }
@@ -826,6 +1070,12 @@ async function openPreview(part) {
     a.href = `/api/parts/${part.id}/file`;
     a.download = part.file_name || t("common.stlFallback");
     a.click();
+  };
+  $("#preview-slicer").onclick = async () => {
+    try {
+      await api(`/api/parts/${part.id}/open-slicer`, { method: "POST" });
+      toast(t("actions.slicerStarted"));
+    } catch { /* Fehler bereits als Toast */ }
   };
   const dlg = $("#preview-modal");
   const canvas = $("#preview-canvas");

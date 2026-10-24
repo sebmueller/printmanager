@@ -28,6 +28,7 @@ header .spacer { flex: 1; }
   background: var(--panel2); color: var(--text); border: 1px solid var(--border);
   border-radius: 8px; padding: 6px 10px; font-size: 13px; cursor: pointer;
 }
+.settings-btn { font-size: 18px; }
 nav { display: flex; gap: 6px; }
 nav button {
   background: transparent; color: var(--muted); border: none; padding: 8px 14px;
@@ -197,6 +198,7 @@ tr.part-target { scroll-margin-top: 90px; }
   border: 1px solid var(--border); border-radius: 7px; text-align: right;
 }
 .queue-print-count:focus { outline: none; border-color: var(--accent); }
+.queue-search { min-width: 220px; }
 @media (max-width: 760px) {
   .queue-item { flex-wrap: wrap; }
   .queue-item .name { min-width: 60%; }
@@ -227,6 +229,10 @@ tr.group-row .proj-link {
   color: var(--accent); font-weight: 600; text-decoration: none; margin-right: 10px;
 }
 tr.group-row .proj-link:hover { text-decoration: underline; }
+.unassigned-warning {
+  background: #4a2525; color: #ffb0b0; border: 1px solid var(--bad);
+  border-radius: 9px; padding: 9px 12px; margin: -4px 0 14px;
+}
 
 .color-presets { display: flex; gap: 8px; flex-wrap: wrap; margin: -2px 0 12px; }
 .color-chip {

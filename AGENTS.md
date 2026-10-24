@@ -10,18 +10,24 @@ Lokale Flask-Web-App zur Verwaltung von 3D-Druckprojekten, Teilen, STL-Dateien, 
 - Frontend: `static/index.html`, Vanilla JavaScript ES-Module in `static/app.js`, Übersetzungen in `static/i18n.js`, CSS in `static/style.css`.
 - STL-Vorschau: lokal eingebundene Three.js-Module unter `static/vendor/`; keine Laufzeit-CDN-Abhängigkeit.
 - Daten: `data.db` und hochgeladene Dateien in `files/`; beide sind in `.gitignore` ausgeschlossen.
-- Konfiguration: `PM_DB`, `PM_FILES`, `PM_PORT`; Standard-Port 5000. Server bindet auf `0.0.0.0` und hat keine Authentifizierung.
+- Einstellungen: `settings.json` (Slicer-Pfad), konfigurierbar über `PM_SETTINGS`; ebenfalls nicht versioniert.
+- Konfiguration: `PM_DB`, `PM_FILES`, `PM_SETTINGS`, `PM_PORT`; Standard-Port 5000. Server bindet auf `0.0.0.0` und hat keine Authentifizierung.
 
 ## Wichtige Fachlogik
 
 - Teilstatus: `geplant`, `queue`, `gedruckt`, `montiert`.
-- `copies` ist die geplante Menge; `copies_printed` ist der tatsächlich gedruckte Teilfortschritt.
+- `copies` ist die geplante Menge pro Satz; `copies_printed` ist der tatsächlich gedruckte Teilfortschritt.
+- Projekte haben `runs` (Durchläufe/Sätze). Der Gesamtbedarf eines Teils ist `copies × runs`; Status-, Queue-, Statistik-, Fortschritts- und Buchungslogik müssen diese Menge verwenden. Änderungen an `runs` normalisieren die Status der Teile (`normalize_project_parts`).
 - `POST /api/parts/<id>/print` erhöht `copies_printed`; unvollständige Teile bleiben in `queue`, vollständige wechseln zu `gedruckt`.
-- `spool_booked_g` ist die Filamentmenge, die diesem Teil bereits belastet wurde. Zielbuchung ist `filament_g * copies_printed`, falls eine Spule gewählt ist. Änderungen müssen alte Buchung erstatten und neue Buchung anwenden.
+- `spool_booked_g` ist die tatsächlich von diesem Teil verbrauchte Filamentmenge (inklusive Ausschuss). Buchungen sind inkrementell: Drucken addiert `filament_g × Kopien`, Zurücknehmen mit `refund=false` lässt den Verbrauch stehen, mit `refund=true` wird `filament_g × Kopien` erstattet (maximal bis zur bisherigen Buchung). Beim Spulenwechsel wird die gebuchte Menge auf die neue Spule übertragen; ohne Spule wird sie auf 0 gesetzt. Nicht wieder auf `filament_g × copies_printed` zurückrechnen, sonst geht Ausschuss verloren.
 - Projekt-/Dashboardfortschritt, offene Druckzeit und offenes Filament müssen `copies_printed` berücksichtigen.
 - Spulengruppe: `count` Spulen, `total_g` und `remaining_g` pro Spule. Verbrauch läuft spulenweise.
+- `GET /api/spools` liefert zusätzlich `planned_g` (offene Nachfrage nach Abzug von `copies_printed`), `available_g = remaining_g + max(count - 1, 0) * total_g` (nur die aktuelle Spule ist angebrochen) und `missing_g = max(planned_g - available_g, 0)`. Dashboard-Stats liefern `filament_unassigned_g` für Teile ohne Spule. Die Filamentansicht addiert offene Fehlmengen je Spule und weist unzugewiesenen Bedarf separat aus.
 - Manuelles Setzen des Status auf `gedruckt`/`montiert` markiert alle Kopien als gedruckt. Zurücksetzen eines vollständig gedruckten Teils auf einen offenen Status setzt Fortschritt und Buchung zurück.
-- Import/Export: `EXPORT_VERSION = 2`; ZIP enthält `manifest.json` und `files/`. Alte Version-1-Exporte ohne `copies_printed` müssen beim Import weiter funktionieren. Beim Import wird der gespeicherte Spulenrest nicht erneut belastet; `spool_booked_g` wird aus dem importierten Fortschritt rekonstruiert.
+- Import/Export: `EXPORT_VERSION = 3`; ZIP enthält `manifest.json` und `files/`. Exporte der Versionen 1 und 2 ohne `runs`/`copies_printed` müssen beim Import weiter funktionieren (`runs` dann 1). `spool_booked_g` wird exportiert und beim Import übernommen, damit Ausschuss erhalten bleibt; fehlt es in älteren Exporten, wird es aus dem Fortschritt rekonstruiert. Beim Import wird der gespeicherte Spulenrest nicht erneut belastet.
+- Slicer-Start (`POST /api/parts/<id>/open-slicer`) kopiert die STL unter dem Originalnamen nach `%TEMP%\printmanager\` und startet das konfigurierte Programm mit Dateipfad als Argument, ohne Shell. Bei Anycubic/Orca/Bambu wird zusätzlich `--single-instance` übergeben, damit die Datei an die laufende Instanz geht. Slicer-Pfad kommt aus `settings.json`, sonst automatische Erkennung bekannter Anycubic-Pfade. Fehlt Programm oder Datei, klare 400/404-Fehler.
+- Schätzwerte (`POST /api/parts/<id>/slice`) rufen dieselbe EXE headless auf: `--load-settings "<machine>;<process>" --load-filaments "<filament>" --orient 1 --slice 0 --outputdir <tmp> <stl>`. `--orient 1` ist wichtig, weil die Original-STLs oft beliebig positioniert sind. Danach wird `plate_1.gcode` im Temp-Ausgabeordner geparst (`estimated printing time (normal mode)`, `total filament used [g]`, Fallbacks) und `time_min`/`filament_g` des Teils (pro Kopie) aktualisiert. Profile kommen aus `settings.json.profiles` oder der Anfrage; Profilliste kommt aus `<slicer>/resources/profiles/*/{machine,process,filament}` und `%APPDATA%\AnycubicSlicerNext\user\*\{...}` (Backup-Ordner ausgeschlossen), siehe `GET /api/slicer/profiles`. Timeout `PM_SLICE_TIMEOUT` (Standard 300 s), Temp-Ordner werden aufgeräumt.
+- Slicer-Start sowie Lesen/Schreiben der Slicer-Einstellungen und Slicing sind über `require_local()` auf Loopback-Adressen beschränkt. Diese Einschränkung nicht ohne ausdrückliche Anforderung lockern.
 
 ## Datenbankänderungen
 
@@ -39,7 +45,7 @@ Schema und additive Migrationen sind in `init_db()` in `app.py`. Migrationen mü
 - Änderungen klein halten und bestehende Muster verwenden.
 - Keine Kommentare in Code ergänzen, sofern der Nutzer nicht ausdrücklich darum bittet.
 - Keine persönlichen Laufzeitdaten committen: `data.db`, `files/`, `server.log`, `__pycache__/` bleiben ausgeschlossen.
-- Niemals Restore-, Lösch- oder Migrationstests gegen die echte `data.db` ausführen. Für Tests temporäre Pfade über `PM_DB` und `PM_FILES` setzen, bevor `app` importiert wird.
+- Niemals Restore-, Lösch- oder Migrationstests gegen die echte `data.db` ausführen. Für Tests temporäre Pfade über `PM_DB`, `PM_FILES` und `PM_SETTINGS` setzen, bevor `app` importiert wird.
 - Keine Commits oder Pushes ohne ausdrücklichen Nutzerauftrag.
 - Es gibt kein dediziertes pytest/npm-Testsystem. Mindestens ausführen:
   - `python -m py_compile app.py`
@@ -49,4 +55,4 @@ Schema und additive Migrationen sind in `init_db()` in `app.py`. Migrationen mü
 
 ## Nützliche Routen
 
-Siehe `README.md` für die API-Tabelle. Kernrouten: `/api/projects`, `/api/parts`, `/api/parts/<id>/print`, `/api/spools`, `/api/stats`, `/api/export/full`, `/api/import`.
+Siehe `README.md` für die API-Tabelle. Kernrouten: `/api/projects`, `/api/parts`, `/api/parts/<id>/print`, `/api/parts/<id>/unprint`, `/api/parts/<id>/open-slicer`, `/api/parts/<id>/slice`, `/api/slicer/profiles`, `/api/spools`, `/api/settings`, `/api/stats`, `/api/export/full`, `/api/import`.

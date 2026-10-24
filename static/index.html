@@ -24,6 +24,7 @@
     <button data-tab="spools" data-i18n="nav.spools">Spulen</button>
   </nav>
   <div class="spacer"></div>
+  <button id="btn-settings" class="icon-btn settings-btn" data-i18n-title="settings.title" title="Einstellungen">⚙</button>
   <select id="lang-select" class="lang-select" title="Sprache / Language">
     <option value="de">Deutsch</option>
     <option value="en">English</option>
@@ -172,9 +173,68 @@
     <div id="preview-info" class="muted"></div>
   </div>
   <div class="modal-actions">
+    <button id="preview-slicer" class="btn">🧩 <span data-i18n="actions.openSlicer">Im Slicer öffnen</span></button>
     <button id="preview-download" class="btn primary" data-i18n="preview.download">⬇ Datei herunterladen</button>
     <button id="preview-close" class="btn" data-i18n="preview.close">Schließen</button>
   </div>
+</dialog>
+
+<!-- Druck zurücknehmen -->
+<dialog id="unprint-modal">
+  <h2 data-i18n="unprint.title">Druck zurücknehmen</h2>
+  <p class="muted" id="unprint-text"></p>
+  <p class="hint" data-i18n="unprint.hint">Fehlerhaft: Das verbrauchte Filament bleibt gebucht. Verklickt: Das Filament wird der Spule wieder gutgeschrieben.</p>
+  <div class="modal-actions">
+    <button type="button" id="unprint-waste" class="btn danger" data-i18n="unprint.waste">Fehlerhaft – Filament verwerfen</button>
+    <button type="button" id="unprint-refund" class="btn primary" data-i18n="unprint.refund">Verklickt – Filament zurück</button>
+    <button type="button" id="unprint-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
+  </div>
+</dialog>
+
+<!-- Schätzwerte (Slicing) -->
+<dialog id="slice-modal">
+  <h2 data-i18n="slice.title">Schätzwerte ermitteln</h2>
+  <p class="muted" id="slice-text"></p>
+  <label><span data-i18n="slice.machine">Druckerprofil</span>
+    <select id="slice-machine"></select>
+  </label>
+  <label><span data-i18n="slice.process">Prozessprofil</span>
+    <select id="slice-process"></select>
+  </label>
+  <label><span data-i18n="slice.filament">Filamentprofil</span>
+    <select id="slice-filament"></select>
+  </label>
+  <p class="hint" id="slice-status"></p>
+  <div class="modal-actions">
+    <button type="button" id="slice-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
+    <button type="button" id="slice-run" class="btn primary" data-i18n="slice.run">Slicen</button>
+  </div>
+</dialog>
+
+<!-- Einstellungen -->
+<dialog id="settings-modal">
+  <h2 data-i18n="settings.title">Einstellungen</h2>
+  <form id="settings-form">
+    <label><span data-i18n="settings.slicer">Slicer-Programm</span>
+      <input type="text" id="settings-slicer" placeholder="C:\Program Files\AnycubicSlicerNext\AnycubicSlicerNext.exe">
+    </label>
+    <label><span data-i18n="slice.machine">Druckerprofil</span>
+      <select id="settings-machine"></select>
+    </label>
+    <label><span data-i18n="slice.process">Prozessprofil</span>
+      <select id="settings-process"></select>
+    </label>
+    <label><span data-i18n="slice.filament">Filamentprofil</span>
+      <select id="settings-filament"></select>
+    </label>
+    <p class="hint" id="settings-status"></p>
+    <p class="hint" data-i18n="settings.hint">Der Slicer-Start ist nur am PC möglich, auf dem der PrintManager läuft.</p>
+    <div class="modal-actions">
+      <button type="button" id="settings-detect" class="btn" data-i18n="settings.detect">Automatisch suchen</button>
+      <button type="button" id="settings-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
+      <button type="submit" class="btn primary" data-i18n="common.save">Speichern</button>
+    </div>
+  </form>
 </dialog>
 
 <!-- Projekt Modal -->
@@ -185,6 +245,7 @@
     <label><span data-i18n="projectModal.description">Beschreibung</span> <input type="text" name="description"></label>
     <label><span data-i18n="projectModal.notes">Notiz</span> <textarea name="notes" rows="3"></textarea></label>
     <label><span data-i18n="projectModal.url">URL</span> <input type="url" name="url" placeholder="https://…"></label>
+    <label><span data-i18n="projectModal.runs">Durchläufe (Sätze)</span> <input type="number" name="runs" min="1" step="1" value="1"></label>
     <div class="modal-actions">
       <button type="button" id="project-cancel" class="btn" data-i18n="common.cancel">Abbrechen</button>
       <button type="submit" class="btn primary" data-i18n="common.save">Speichern</button>

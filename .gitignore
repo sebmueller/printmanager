@@ -3,4 +3,5 @@ __pycache__/
 data.db
 files/
 server.log
+settings.json
 .venv/
