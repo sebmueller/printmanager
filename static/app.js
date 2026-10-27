@@ -129,7 +129,7 @@ let spoolsCache = [];
 
 function showView(name) {
   currentView = name;
-  for (const v of ["dashboard", "parts", "project", "queue", "spools"]) {
+  for (const v of ["dashboard", "parts", "project", "queue", "spools", "archive"]) {
     $(`#view-${v}`).hidden = v !== name;
   }
   document.querySelectorAll("#tabs button").forEach((b) =>
@@ -143,6 +143,7 @@ async function render() {
   else if (currentView === "project") await renderProject();
   else if (currentView === "queue") await renderQueue();
   else if (currentView === "spools") await renderSpools();
+  else if (currentView === "archive") await renderArchive();
 }
 
 // ---------------------------------------------------------------- dashboard
@@ -183,13 +184,67 @@ async function renderDashboard() {
             <span>${fmtTime(p.time_open)}</span>
             <span>${fmtG(p.filament_open)}</span>
           </div>
+          <div class="card-actions">
+            <button class="btn small" data-archive="${p.id}" title="${t("archive.title")}">${t("archive.archive")}</button>
+          </div>
         </div>`;
   }).join("") || `<div class="empty">${t("dash.empty")}</div>`}
     </div>`;
   view.querySelectorAll(".card").forEach((c) =>
-    c.addEventListener("click", () => openProject(+c.dataset.project)));
+    c.addEventListener("click", (e) => {
+      if (e.target.closest("[data-archive]")) return;
+      openProject(+c.dataset.project);
+    }));
+  view.querySelectorAll("[data-archive]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const project = projectsCache.find((p) => p.id === +btn.dataset.archive);
+      if (!project || !confirm(t("archive.confirmArchive", { name: project.name }))) return;
+      await api(`/api/projects/${project.id}`, { method: "PUT", json: { archived: 1 } });
+      toast(t("archive.archived"));
+      render();
+    }));
   $("#btn-new-project").addEventListener("click", () => openProjectModal());
   $("#btn-import").addEventListener("click", () => $("#import-modal").showModal());
+}
+
+// ---------------------------------------------------------------- archive
+
+async function renderArchive() {
+  const archived = await api("/api/projects?archived=1");
+  projectsCache = archived;
+  const view = $("#view-archive");
+  view.innerHTML = `
+    <div class="toolbar"><h2 style="margin:0">${t("archive.title")}</h2>
+      <span class="muted">${t("archive.hint")}</span><div class="spacer"></div></div>
+    <div class="cards">
+      ${archived.map((p) => {
+    const pct = p.copies_total ? Math.round(100 * p.copies_done / p.copies_total) : 0;
+    return `
+        <div class="card" data-project="${p.id}">
+          <h3>${esc(p.name)}</h3>
+          <div class="desc">${esc(p.description)}</div>
+          <div class="progress"><div style="width:${pct}%"></div></div>
+          <div class="meta">
+            <span>${t("dash.card.copies", { done: p.copies_done, total: p.copies_total, pct })}</span>
+            <span>${t("dash.card.parts", { n: p.parts_count })}${p.runs > 1 ? ` · ${t("dash.card.runs", { n: p.runs })}` : ""}</span>
+          </div>
+          <div class="card-actions">
+            <button class="btn small" data-restore="${p.id}" title="${t("archive.restore")}">${t("archive.restore")}</button>
+            <button class="btn small" data-open="${p.id}">${t("archive.open")}</button>
+          </div>
+        </div>`;
+  }).join("") || `<div class="empty">${t("archive.empty")}</div>`}
+    </div>`;
+  view.querySelectorAll("[data-restore]").forEach((btn) =>
+    btn.addEventListener("click", async () => {
+      const project = archived.find((p) => p.id === +btn.dataset.restore);
+      if (!project || !confirm(t("archive.confirmRestore", { name: project.name }))) return;
+      await api(`/api/projects/${project.id}`, { method: "PUT", json: { archived: 0 } });
+      toast(t("archive.restored"));
+      renderArchive();
+    }));
+  view.querySelectorAll("[data-open]").forEach((btn) =>
+    btn.addEventListener("click", () => openProject(+btn.dataset.open)));
 }
 
 // ---------------------------------------------------------------- import
@@ -504,9 +559,7 @@ async function renderParts() {
         ${g.items.map((p) => `
         <tr data-part-id="${p.id}">
           <td>
-            ${p.file_stored ? `<button class="icon-btn" data-act="preview" data-id="${p.id}" title="${t("actions.preview")}">3D</button>` : ""}
             <input class="inline-input w-name" type="text" data-id="${p.id}" data-field="name" value="${esc(p.name)}">
-            ${p.web_url ? `<a class="icon-btn" href="${esc(p.web_url)}" target="_blank" rel="noopener" title="${t("actions.webLink")}">🔗</a>` : ""}
             ${p.notes ? `<span class="muted" title="${esc(p.notes)}"> 📝</span>` : ""}
           </td>
           <td class="num"><input class="inline-input w-num" type="number" min="1" step="1" data-id="${p.id}" data-field="copies" value="${p.copies}" title="${t("table.totalCopies")}: ${p.copies * (p.project_runs || 1)}"></td>
@@ -517,6 +570,8 @@ async function renderParts() {
           <td><select class="status-sel" data-id="${p.id}" data-field="spool_id">${spoolOptions(p.spool_id)}</select></td>
           <td class="num"><input class="inline-input w-prio" type="number" step="1" data-id="${p.id}" data-field="priority" value="${p.priority}"></td>
           <td><div class="actions">
+            ${p.file_stored ? `<button class="icon-btn" data-act="preview" data-id="${p.id}" title="${t("actions.preview")}">3D</button>` : ""}
+            ${p.web_url ? `<a class="icon-btn" href="${esc(p.web_url)}" target="_blank" rel="noopener" title="${t("actions.webLink")}">🔗</a>` : ""}
             ${p.file_path ? `<button class="icon-btn" data-act="explorer" data-id="${p.id}" title="${t("actions.explorer")}">📁</button>` : ""}
             <button class="icon-btn" data-act="edit" data-id="${p.id}" title="${t("actions.edit")}">✏️</button>
             <button class="icon-btn" data-act="delete" data-id="${p.id}" title="${t("actions.delete")}">✕</button>
@@ -548,9 +603,12 @@ async function renderParts() {
 // ---------------------------------------------------------------- project view
 
 function openProject(id) {
+  if (currentProjectId !== id) selectedProjectPartIds.clear();
   currentProjectId = id;
   showView("project");
 }
+
+let selectedProjectPartIds = new Set();
 
 async function renderProject() {
   const [project, parts, spools] = await Promise.all([
@@ -581,8 +639,18 @@ async function renderProject() {
         fil: fmtG(parts.reduce((s, p) => s + p.filament_g * (p.copies * project.runs - Math.min(p.copies_printed, p.copies * project.runs)), 0)),
       })}</span>
     </div>
+    <div class="toolbar bulk-toolbar">
+      <span id="bulk-selected-count" class="muted"></span>
+      <div class="spacer"></div>
+      <select id="bulk-status">
+        <option value="">${t("bulk.chooseStatus")}</option>
+        ${statusOptions("")}
+      </select>
+      <button class="btn primary" id="bulk-apply" disabled>${t("bulk.apply")}</button>
+    </div>
     <table>
       <thead><tr>
+        <th class="select-col"><input type="checkbox" id="project-select-all" aria-label="${t("bulk.selectAll")}"></th>
         <th>${t("table.name")}</th><th class="num">${t("table.copies")}</th><th class="num">${t("table.printed")}</th><th>${t("table.status")}</th>
         <th class="num">${t("part.timePerCopy")}</th><th class="num">${t("part.filamentPerCopy")}</th>
         <th>${t("table.spool")}</th><th class="num">${t("table.priority")}</th><th></th>
@@ -590,11 +658,9 @@ async function renderProject() {
       <tbody>
         ${parts.map((p) => `
         <tr>
+          <td class="select-col"><input type="checkbox" class="project-part-select" data-id="${p.id}" ${selectedProjectPartIds.has(p.id) ? "checked" : ""} aria-label="${t("bulk.selectPart", { name: esc(p.name) })}"></td>
           <td>
-            ${p.file_stored ? `<button class="icon-btn" data-act="preview" data-id="${p.id}" title="${t("actions.preview")}">3D</button>` : ""}
             <input class="inline-input w-name" type="text" data-id="${p.id}" data-field="name" value="${esc(p.name)}">
-            ${p.file_stored ? `<button class="icon-btn" data-act="download" data-id="${p.id}" title="${t("actions.downloadNamed", { name: esc(p.file_name), size: fmtBytes(p.file_size) })}">↓</button>` : ""}
-            ${p.web_url ? `<a class="icon-btn" href="${esc(p.web_url)}" target="_blank" rel="noopener" title="${t("actions.webLink")}">🔗</a>` : ""}
             ${p.notes ? `<span class="muted" title="${esc(p.notes)}"> 📝</span>` : ""}
           </td>
           <td class="num"><input class="inline-input w-num" type="number" min="1" step="1" data-id="${p.id}" data-field="copies" value="${p.copies}" title="${t("table.totalCopies")}: ${p.copies * project.runs}"></td>
@@ -605,6 +671,9 @@ async function renderProject() {
           <td><select class="status-sel" data-id="${p.id}" data-field="spool_id">${spoolOptions(p.spool_id)}</select></td>
           <td class="num"><input class="inline-input w-prio" type="number" step="1" data-id="${p.id}" data-field="priority" value="${p.priority}"></td>
           <td><div class="actions">
+            ${p.file_stored ? `<button class="icon-btn" data-act="preview" data-id="${p.id}" title="${t("actions.preview")}">3D</button>` : ""}
+            ${p.file_stored ? `<button class="icon-btn" data-act="download" data-id="${p.id}" title="${t("actions.downloadNamed", { name: esc(p.file_name), size: fmtBytes(p.file_size) })}">↓</button>` : ""}
+            ${p.web_url ? `<a class="icon-btn" href="${esc(p.web_url)}" target="_blank" rel="noopener" title="${t("actions.webLink")}">🔗</a>` : ""}
             ${p.file_path ? `<button class="icon-btn" data-act="explorer" data-id="${p.id}" title="${t("actions.explorer")}">📁</button>` : ""}
             <button class="icon-btn" data-act="edit" data-id="${p.id}" title="${t("actions.edit")}">✏️</button>
             <button class="icon-btn" data-act="delete" data-id="${p.id}" title="${t("actions.delete")}">✕</button>
@@ -629,6 +698,48 @@ async function renderProject() {
     await api(`/api/projects/${project.id}`, { method: "PUT", json: { runs } });
     render();
   });
+  const selectAll = $("#project-select-all");
+  const bulkStatus = $("#bulk-status");
+  const bulkApply = $("#bulk-apply");
+  const updateBulkSelection = () => {
+    const selectedCount = parts.filter((p) => selectedProjectPartIds.has(p.id)).length;
+    $("#bulk-selected-count").textContent = t("bulk.selected", { count: selectedCount });
+    selectAll.checked = parts.length > 0 && selectedCount === parts.length;
+    selectAll.indeterminate = selectedCount > 0 && selectedCount < parts.length;
+    bulkApply.disabled = selectedCount === 0 || !bulkStatus.value;
+  };
+  selectAll.addEventListener("change", () => {
+    for (const part of parts) {
+      if (selectAll.checked) selectedProjectPartIds.add(part.id);
+      else selectedProjectPartIds.delete(part.id);
+    }
+    view.querySelectorAll(".project-part-select").forEach((cb) => { cb.checked = selectAll.checked; });
+    updateBulkSelection();
+  });
+  view.querySelectorAll(".project-part-select").forEach((cb) =>
+    cb.addEventListener("change", () => {
+      const id = +cb.dataset.id;
+      if (cb.checked) selectedProjectPartIds.add(id);
+      else selectedProjectPartIds.delete(id);
+      updateBulkSelection();
+    }));
+  bulkStatus.addEventListener("change", updateBulkSelection);
+  bulkApply.addEventListener("click", async () => {
+    const ids = parts.filter((p) => selectedProjectPartIds.has(p.id)).map((p) => p.id);
+    if (!ids.length || !bulkStatus.value) return;
+    bulkApply.disabled = true;
+    try {
+      for (const id of ids) {
+        await api(`/api/parts/${id}`, { method: "PUT", json: { status: bulkStatus.value } });
+      }
+      selectedProjectPartIds.clear();
+      toast(t("bulk.updated", { count: ids.length }));
+      await renderProject();
+    } catch {
+      await renderProject();
+    }
+  });
+  updateBulkSelection();
   attachInlineEditing(view);
   view.querySelectorAll("[data-act]").forEach((btn) =>
     btn.addEventListener("click", () => partAction(btn.dataset.act, +btn.dataset.id)));
@@ -1207,7 +1318,7 @@ window.addEventListener("drop", (e) => {
 
 // ---------------------------------------------------------------- init
 
-const VIEWS = ["dashboard", "parts", "project", "queue", "spools"];
+const VIEWS = ["dashboard", "parts", "project", "queue", "spools", "archive"];
 
 function bootFromUrl() {
   const params = new URLSearchParams(window.location.search);

@@ -115,6 +115,18 @@ select.status-sel {
 
 .toolbar { display: flex; gap: 10px; margin-bottom: 16px; flex-wrap: wrap; align-items: center; }
 .toolbar .spacer { flex: 1; }
+.bulk-toolbar {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+  padding: 8px 12px; margin-top: 4px;
+}
+.bulk-toolbar select {
+  background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 13px;
+}
+.select-col { width: 38px; text-align: center; }
+.select-col input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+.card-actions { display: flex; gap: 8px; margin-top: 10px; }
+.card-actions .btn { flex: none; }
 
 dialog {
   background: var(--panel); color: var(--text); border: 1px solid var(--border);

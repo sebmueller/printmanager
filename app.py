@@ -245,6 +245,7 @@ CREATE TABLE IF NOT EXISTS projects (
     notes TEXT NOT NULL DEFAULT '',
     url TEXT NOT NULL DEFAULT '',
     runs INTEGER NOT NULL DEFAULT 1,
+    archived INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS spools (
@@ -314,6 +315,8 @@ def init_db():
                 db.execute(f"ALTER TABLE projects ADD COLUMN {col} TEXT NOT NULL DEFAULT ''")
         if "runs" not in project_cols:
             db.execute("ALTER TABLE projects ADD COLUMN runs INTEGER NOT NULL DEFAULT 1")
+        if "archived" not in project_cols:
+            db.execute("ALTER TABLE projects ADD COLUMN archived INTEGER NOT NULL DEFAULT 0")
 
 
 def now():
@@ -423,8 +426,15 @@ def index():
 
 @app.get("/api/projects")
 def list_projects():
+    include_archived = request.args.get("include_archived") == "1"
+    only_archived = request.args.get("archived") == "1"
+    where = ""
+    if only_archived:
+        where = " WHERE p.archived = 1"
+    elif not include_archived:
+        where = " WHERE COALESCE(p.archived, 0) = 0"
     rows = get_db().execute(
-        """
+        f"""
         SELECT p.*,
                COUNT(pt.id) AS parts_count,
                COALESCE(SUM(pt.copies * p.runs), 0) AS copies_total,
@@ -433,7 +443,7 @@ def list_projects():
                COALESCE(SUM(pt.time_min * pt.copies * p.runs), 0) AS time_total,
                COALESCE(SUM(pt.filament_g * pt.copies * p.runs), 0) AS filament_total,
                COALESCE(SUM((pt.copies * p.runs - MIN(pt.copies_printed, pt.copies * p.runs)) * pt.filament_g), 0) AS filament_open
-        FROM projects p LEFT JOIN parts pt ON pt.project_id = p.id
+        FROM projects p LEFT JOIN parts pt ON pt.project_id = p.id{where}
         GROUP BY p.id ORDER BY p.created_at DESC
         """
     ).fetchall()
@@ -451,8 +461,9 @@ def create_project():
         abort(409, terr("project_exists", name=name))
     runs = max(1, int(data.get("runs") or 1))
     cur = db.execute(
-        "INSERT INTO projects (name, description, notes, url, runs, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-        (name, data.get("description", ""), data.get("notes", ""), data.get("url", ""), runs, now()),
+        "INSERT INTO projects (name, description, notes, url, runs, archived, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (name, data.get("description", ""), data.get("notes", ""), data.get("url", ""), runs,
+         1 if data.get("archived") in (1, True, "1", "true") else 0, now()),
     )
     db.commit()
     return jsonify(row_to_dict(db.execute(
@@ -473,10 +484,11 @@ def update_project(pid):
             "SELECT 1 FROM projects WHERE name = ? COLLATE NOCASE AND id != ?", (name, pid)).fetchone():
         abort(409, terr("project_exists", name=name))
     runs = max(1, int(data.get("runs", row["runs"]) or 1))
+    archived = 1 if data.get("archived", row["archived"]) in (1, True, "1", "true") else 0
     db.execute(
-        "UPDATE projects SET name = ?, description = ?, notes = ?, url = ?, runs = ? WHERE id = ?",
+        "UPDATE projects SET name = ?, description = ?, notes = ?, url = ?, runs = ?, archived = ? WHERE id = ?",
         (name, data.get("description", row["description"]),
-         data.get("notes", row["notes"]), data.get("url", row["url"]), runs, pid),
+         data.get("notes", row["notes"]), data.get("url", row["url"]), runs, archived, pid),
     )
     normalize_project_parts(db, pid, runs)
     db.commit()
@@ -1044,7 +1056,7 @@ def delete_spool(sid):
 # ---------------------------------------------------------------- export / import
 
 EXPORT_FORMAT = "printmanager-export"
-EXPORT_VERSION = 3
+EXPORT_VERSION = 4
 
 PART_EXPORT_FIELDS = ["name", "copies", "copies_printed", "status", "time_min", "filament_g", "file_path",
                       "web_url", "file_name", "file_stored", "file_size", "priority",
@@ -1079,6 +1091,7 @@ def _build_export(db, kind, project_ids):
         parts = db.execute("SELECT * FROM parts WHERE project_id = ? ORDER BY id", (pr["id"],)).fetchall()
         pj = {"name": pr["name"], "description": pr["description"],
               "notes": pr["notes"], "url": pr["url"], "runs": pr["runs"],
+              "archived": pr["archived"] if "archived" in pr.keys() else 0,
               "created_at": pr["created_at"], "parts": []}
         for pt in parts:
             d = row_to_dict(pt)
@@ -1166,9 +1179,10 @@ def import_zip():
                 "SELECT 1 FROM projects WHERE name = ?", (name,)).fetchone():
             name += " (Import)"
         cur = db.execute(
-            "INSERT INTO projects (name, description, notes, url, runs, created_at) VALUES (?,?,?,?,?,?)",
+            "INSERT INTO projects (name, description, notes, url, runs, archived, created_at) VALUES (?,?,?,?,?,?,?)",
             (name, pr.get("description") or "", pr.get("notes") or "",
              pr.get("url") or "", max(1, int(pr.get("runs") or 1)),
+             1 if pr.get("archived") in (1, True, "1", "true") else 0,
              pr.get("created_at") or now()))
         proj_id = cur.lastrowid
         project_run_count = max(1, int(pr.get("runs") or 1))
@@ -1223,7 +1237,7 @@ def import_zip():
 @app.get("/api/stats")
 def stats():
     db = get_db()
-    g1 = db.execute("SELECT COUNT(*) projects FROM projects").fetchone()
+    g1 = db.execute("SELECT COUNT(*) projects FROM projects WHERE COALESCE(archived, 0) = 0").fetchone()
     g2 = db.execute(
         """SELECT COUNT(*) parts,
                   COALESCE(SUM(pt.copies * pr.runs),0) copies,
@@ -1235,7 +1249,8 @@ def stats():
                   COALESCE(SUM(CASE WHEN pt.spool_id IS NULL THEN
                     (pt.copies*pr.runs - MIN(pt.copies_printed, pt.copies*pr.runs))*pt.filament_g
                     ELSE 0 END),0) filament_unassigned
-           FROM parts pt JOIN projects pr ON pr.id = pt.project_id""").fetchone()
+           FROM parts pt JOIN projects pr ON pr.id = pt.project_id
+           WHERE COALESCE(pr.archived, 0) = 0""").fetchone()
     g3 = db.execute(
         "SELECT COALESCE(SUM(remaining_g + MAX(count - 1, 0) * total_g),0) remaining, "
         "COALESCE(SUM(total_g * count),0) total FROM spools").fetchone()

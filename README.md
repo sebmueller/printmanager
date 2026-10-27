@@ -15,6 +15,7 @@ This project was created with assistance from AI tools.
 - Choose printer, process, and filament profiles globally or override them for one slicing run
 - Track partial printing, return defective copies without refunding consumed filament, or undo a mistaken completion with a filament refund
 - View planned filament demand and shortages per spool group
+- Archive completed projects without deleting their parts and files
 - Export individual projects or a complete backup, including STL files, as ZIP archives
 
 ## Screenshots
@@ -38,6 +39,9 @@ The screenshots use synthetic demo data; no personal projects or STL files are i
 
 ### Filament inventory
 ![Filament stock, planned demand, and shortages](docs/screenshots/filament.png)
+
+### Archive
+![Archived projects](docs/screenshots/archive.png)
 
 </details>
 
@@ -152,6 +156,10 @@ The **Filament** tab shows stock, open planned demand, and shortage per spool gr
 
 The spool count represents identical spools; total and remaining weights are maintained per spool. Refilling adds a weight in grams. If the amount crosses full-spool boundaries, the count and remainder are adjusted accordingly. Consumption advances through spools one at a time.
 
+### Archive
+
+Use **Archive** on a dashboard card to hide a completed project from the dashboard without deleting any data. The **Archive** tab lists archived projects and lets you restore or open them. Archived projects keep their parts, files, notes, and export capability. Dashboard statistics count active projects only; archived projects are excluded from the parts summary and filament demand.
+
 ### Import and export
 
 - **Project view → Export** exports that project, its parts, referenced spools, and files.
@@ -159,7 +167,7 @@ The spool count represents identical spools; total and remaining weights are mai
 - **Dashboard → Import → Merge** adds imported projects and spools without replacing existing data.
 - **Dashboard → Import → Overwrite** deletes all existing projects, parts, and spools before restoring the archive. Make a backup first.
 
-ZIP archives contain a versioned `manifest.json` and referenced files. The current export format is version 3; versions 1 and 2 are still accepted. Newer unsupported versions are rejected.
+ZIP archives contain a versioned `manifest.json` and referenced files. The current export format is version 4; versions 1 to 3 are still accepted. Newer unsupported versions are rejected.
 
 ## API overview
 
@@ -167,7 +175,7 @@ The Flask server provides the JSON API. Mutation routes generally expect JSON un
 
 | Method | Route | Purpose |
 | --- | --- | --- |
-| `GET` | `/api/projects` | Projects, progress, and totals |
+| `GET` | `/api/projects` | Projects, progress, and totals; `?archived=1` for archived only, `?include_archived=1` for all |
 | `POST` | `/api/projects` | Create a project |
 | `GET` | `/api/projects/<id>` | Get one project |
 | `PUT` | `/api/projects/<id>` | Update a project |
@@ -243,6 +251,7 @@ Dieses Projekt wurde mit Unterstützung von KI-Tools erstellt.
 - Teilfortschritt erfassen, fehlerhafte Kopien ohne Filamenterstattung zurücknehmen oder eine versehentliche Fertigmeldung samt Filamentbuchung rückgängig machen
 - Offenen Filamentbedarf und Fehlmengen je Spulengruppe anzeigen
 - Einzelprojekte oder Komplettsicherungen einschließlich STL-Dateien als ZIP exportieren und importieren
+- Abgeschlossene Projekte archivieren, ohne Teile und Dateien zu löschen
 
 ## Screenshots
 
@@ -359,6 +368,10 @@ Der Reiter **Filament** zeigt Bestand, offenen Bedarf und Fehlmenge je Spulengru
 
 Die Anzahl bezeichnet gleichartige Spulen; Gesamt- und Restgewicht werden pro Spule geführt. Nachfüllen addiert Gramm. Werden volle Spulengewichte überschritten, erhöhen sich Spulenanzahl und Rest der letzten Spule. Verbrauch läuft Spule für Spule.
 
+### Archiv
+
+Über **Archivieren** auf einer Dashboard-Karte wird ein abgeschlossenes Projekt ausgeblendet, ohne Daten zu löschen. Der Reiter **Archiv** listet archivierte Projekte und bietet **Reaktivieren** und **Öffnen**. Teile, Dateien, Notizen und Export bleiben erhalten. Dashboard-Statistiken, Teilesummen und Filamentbedarf zählen nur aktive Projekte.
+
 ### Import und Export
 
 - **Projektansicht → Export** exportiert das Projekt, seine Teile, zugewiesene Spulen und Dateien.
@@ -366,7 +379,7 @@ Die Anzahl bezeichnet gleichartige Spulen; Gesamt- und Restgewicht werden pro Sp
 - **Dashboard → Import → Anhängen** fügt zusätzliche Projekte und Spulen hinzu; bestehende Daten bleiben.
 - **Dashboard → Import → Überschreiben** löscht alle vorhandenen Projekte, Teile und Spulen und stellt dann das Archiv wieder her. Vorher ein Backup anlegen.
 
-ZIP-Dateien enthalten ein versioniertes `manifest.json` und die referenzierten Dateien. Aktuelles Format ist Version 3; Versionen 1 und 2 werden weiter importiert. Neuere, nicht unterstützte Versionen werden abgelehnt.
+ZIP-Dateien enthalten ein versioniertes `manifest.json` und die referenzierten Dateien. Aktuelles Format ist Version 4; Versionen 1 bis 3 werden weiter importiert. Neuere, nicht unterstützte Versionen werden abgelehnt.
 
 ## API-Übersicht
 
@@ -374,7 +387,7 @@ Die Flask-API liefert JSON. Änderungsrouten erwarten JSON, außer bei Datei-Upl
 
 | Methode | Route | Zweck |
 | --- | --- | --- |
-| `GET` | `/api/projects` | Projekte, Fortschritt und Summen |
+| `GET` | `/api/projects` | Projekte, Fortschritt und Summen; `?archived=1` nur archivierte, `?include_archived=1` alle |
 | `POST` | `/api/projects` | Projekt erstellen |
 | `GET` | `/api/projects/<id>` | Projekt abrufen |
 | `PUT` | `/api/projects/<id>` | Projekt aktualisieren |
